@@ -4,3 +4,5 @@ Properties:
 * No isolated subgraphs.
 * Simple visualisation (using unicode block drawing) to standard output
 
+![Screenshot](https://raw.githubusercontent.com/proycon/pipemapgen/master/screenshot.png)
+
