@@ -24,3 +24,9 @@ Usage:
 ```
 $ ./target/release/pipemapgen --help
 ```
+
+It's fun to use this with ``watch`` to random ones continuously:
+
+```
+$ watch -n 0.5 ./target/release/pipemapgen
+```
