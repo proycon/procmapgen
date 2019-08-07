@@ -16,7 +16,8 @@ pub struct WorldProperties {
     pub networkseed: u64,
     ///initial backbone points
     pub backboneseeds: u16,
-    pub regularseeds: Vec<u16> //multiple iterations
+    pub regularseeds: Vec<u16>, //multiple iterations
+    pub deadends: bool,
 }
 
 #[derive(Debug,Default)]
@@ -120,28 +121,64 @@ pub fn generate_grid(properties: &WorldProperties) -> Vec<u8> {
                     }
                 }
                 //
-                //draw a random path
+                //draw a random path to the closest backbone
                 if let Some((to_x,to_y)) = closest {
-                    let mut from_x = x;
-                    let mut from_y = y;
-                    let dx: i32 = if to_x > from_x { 1 } else { -1 };
-                    let dy: i32 = if to_y > from_y { 1 } else { -1 };
-                    while (from_x != to_x) || (from_y != to_y) {
-                        if (from_x != x) || (from_y != y) {
-                            grid[getgridindex(properties, from_x,from_y)] = height +1;
-                        }
-                        if (from_x != to_x) && ((from_y == to_y) || rng.gen()) {
-                            from_x = ((from_x as i32) + dx) as AddressSize;
-                        } else if (from_y != to_y) && ((from_x == to_x) || rng.gen()) {
-                            from_y = ((from_y as i32) + dy) as AddressSize;
-                        }
-                    }
+                    randompathto(properties, &mut grid, x, y, to_x, to_y, &mut rng);
                 }
             }
         }
     }
 
+    if !properties.deadends {
+        let mut deadends: Vec<(AddressSize,AddressSize)> = Vec::new();
+        //find all dead ends
+        for y in 0..properties.height {
+            for x in 0..properties.width {
+               if countneighbours(properties, &grid, x, y) == 1 {
+                   deadends.push((x,y));
+               }
+            }
+        }
+
+    }
+
     grid
+}
+
+pub fn randompathto(properties: &WorldProperties, grid: &mut Vec<u8>, x: AddressSize, y: AddressSize, to_x: AddressSize, to_y: AddressSize, rng: &mut Pcg32) {
+    let mut from_x = x;
+    let mut from_y = y;
+    let dx: i32 = if to_x > from_x { 1 } else { -1 };
+    let dy: i32 = if to_y > from_y { 1 } else { -1 };
+    while (from_x != to_x) || (from_y != to_y) {
+        if (from_x != x) || (from_y != y) {
+            grid[getgridindex(properties, from_x,from_y)] = properties.height +1;
+        }
+        if (from_x != to_x) && ((from_y == to_y) || rng.gen()) {
+            from_x = ((from_x as i32) + dx) as AddressSize;
+        } else if (from_y != to_y) && ((from_x == to_x) || rng.gen()) {
+            from_y = ((from_y as i32) + dy) as AddressSize;
+        }
+    }
+}
+
+
+pub fn hasneighbours(properties: &WorldProperties, grid: &Vec<u8>, x: AddressSize, y: AddressSize) -> (bool, bool, bool, bool) {
+   let hasnorth = y > 0 && grid[getgridindex(properties, x, y-1)] > 0;
+   let haseast = x < properties.width - 1 && grid[getgridindex(properties, x+1, y)] > 0 ;
+   let hassouth = y < properties.height - 1 && grid[getgridindex(properties,x,y+1)] > 0;
+   let haswest = x > 0 && grid[getgridindex(properties, x-1, y)] > 0;
+   (hasnorth, haseast, hassouth, haswest)
+}
+
+pub fn countneighbours(properties: &WorldProperties, grid: &Vec<u8>, x: AddressSize, y: AddressSize) -> usize {
+   let (hasnorth, haseast, hassouth, haswest) = hasneighbours(properties, grid, x, y);
+   let mut count = 0;
+   if hasnorth { count += 1 }
+   if haseast { count += 1 }
+   if hassouth { count += 1 }
+   if haswest { count += 1 }
+   count
 }
 
 
@@ -155,10 +192,7 @@ pub fn printgrid(properties: &WorldProperties, grid: &Vec<u8>, debug: bool) {
                    if debug {
                        grid[index] as char
                    } else {
-                       let haswest = x > 0 && grid[getgridindex(properties, x-1, y)] > 0;
-                       let hasnorth = y > 0 && grid[getgridindex(properties, x, y-1)] > 0;
-                       let haseast = x < properties.width - 1 && grid[getgridindex(properties, x+1, y)] > 0 ;
-                       let hassouth = y < properties.height - 1 && grid[getgridindex(properties,x,y+1)] > 0;
+                       let (hasnorth, haseast, hassouth, haswest) = hasneighbours(properties, grid, x, y);
                        let isbackbone = grid[index] <= 2;
                        getnodeglyph(hasnorth, haseast, hassouth, haswest, isbackbone)
 
@@ -247,6 +281,11 @@ fn main() {
              .takes_value(true)
              .default_value("40,40,60")
         )
+        .arg(Arg::with_name("nodeadends")
+             .help("nodeadends")
+             .long("nodeadends")
+             .short("n")
+        )
         .get_matches();
 
     let regularseeds: Option<Vec<&str>>= argmatches.value_of("regularseeds").map(|regularseeds: &str| {
@@ -263,6 +302,7 @@ fn main() {
         networkseed: seed,
         backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
         regularseeds: regularseeds,
+        deadends: !argmatches.is_present("nodeadends"),
     };
     let grid = generate_grid(&worldproperties);
     printgrid(&worldproperties, &grid, false);
