@@ -1,5 +1,6 @@
 extern crate rand;
 extern crate clap;
+extern crate num;
 
 use rand::{SeedableRng,Rng,random};
 use rand::prelude::IteratorRandom;
@@ -9,7 +10,7 @@ use clap::{App,Arg};
 pub type AddressSize = u8;
 
 #[derive(Debug,Default)]
-pub struct WorldProperties {
+pub struct Properties {
     pub width: AddressSize,
     pub height: AddressSize,
     ///seed for the random number generator that creates the network
@@ -25,13 +26,82 @@ pub struct GenerationStatus {
     pub players: bool,
     pub nodes: bool,
 }
-pub fn getgridindex(properties: &WorldProperties, x: AddressSize,y: AddressSize) -> usize {
+
+
+pub struct Grid<ScaleType,ValueType> {
+    pub data: Vec<ValueType>,
+    pub width: ScaleType,
+    pub height: ScaleType,
+}
+
+impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
+    ScaleType: num::Integer, ValueType: num::Num {
+    pub fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
+        //create initial empty 2D grid
+        let mut grid: Vec<u8> = Vec::new(); //flattened grid
+        for _ in 0..height {
+            for _ in 0..width {
+                grid.push(0);
+            }
+        }
+
+        Grid {
+            data: grid,
+            width: width,
+            height: height,
+        }
+    }
+
+    pub fn index(&self, x: ScaleType, y: ScaleType) -> usize {
+       y as usize * self.width as usize + x as usize
+    }
+
+    pub fn get(&self, x: ScaleType, y: ScaleType) -> Option<&ValueType> {
+        self.data.get(self.index(x,y))
+    }
+
+    pub fn get_mut(&self, x: ScaleType, y: ScaleType) -> Option<&mut ValueType> {
+        self.data.get_mut(self.index(x,y))
+    }
+
+    pub fn set(&self, x: ScaleType, y: ScaleType, value: ValueType) -> bool {
+        if let Some(mut v) = self.data.get_mut(x,y) {
+            *v = value;
+            return true;
+        }
+        return false;
+    }
+
+    pub fn hasneighbours(&self,x: ScaleType, y: ScaleType) -> (bool, bool, bool, bool) {
+       let hasnorth = y > 0 && self.get(x,y-1) > 0;
+       let haseast = x < self.width - 1 && self.get(x+1,y) > 0 ;
+       let hassouth = y < self.height - 1 && self.get(x,y+1) > 0;
+       let haswest = x > 0 && self.get(x-1,y) > 0;
+       (hasnorth, haseast, hassouth, haswest)
+    }
+
+    pub fn countneighbours(&self, x: ScaleType, y: ScaleType) -> usize {
+       let (hasnorth, haseast, hassouth, haswest) = self.hasneighbours(x, y);
+       let mut count = 0;
+       if hasnorth { count += 1 }
+       if haseast { count += 1 }
+       if hassouth { count += 1 }
+       if haswest { count += 1 }
+       count
+    }
+
+}
+
+
+
+
+pub fn getgridindex(properties: &Properties, x: AddressSize,y: AddressSize) -> usize {
    y as usize * properties.width as usize + x as usize
 }
 
 
 ///Generates the network (a planar graph), with a backbone
-pub fn generate_grid(properties: &WorldProperties) -> Vec<u8> {
+pub fn generate_grid(properties: &Properties) -> Vec<u8> {
     let mut rng = Pcg32::seed_from_u64(properties.networkseed);
     let mut grid: Vec<u8> = Vec::new(); //flattened grid
 
@@ -158,7 +228,7 @@ pub fn generate_grid(properties: &WorldProperties) -> Vec<u8> {
     grid
 }
 
-pub fn randompathto(properties: &WorldProperties, grid: &mut Vec<u8>, x: AddressSize, y: AddressSize, to_x: AddressSize, to_y: AddressSize, height: u8, rng: &mut Pcg32) {
+pub fn randompathto(properties: &Properties, grid: &mut Vec<u8>, x: AddressSize, y: AddressSize, to_x: AddressSize, to_y: AddressSize, height: u8, rng: &mut Pcg32) {
     let mut retry = true;
     let mut retries = 0;
     while retry {
@@ -190,7 +260,7 @@ pub fn randompathto(properties: &WorldProperties, grid: &mut Vec<u8>, x: Address
 }
 
 
-pub fn hasneighbours(properties: &WorldProperties, grid: &Vec<u8>, x: AddressSize, y: AddressSize) -> (bool, bool, bool, bool) {
+pub fn hasneighbours(properties: &Properties, grid: &Vec<u8>, x: AddressSize, y: AddressSize) -> (bool, bool, bool, bool) {
    let hasnorth = y > 0 && grid[getgridindex(properties, x, y-1)] > 0;
    let haseast = x < properties.width - 1 && grid[getgridindex(properties, x+1, y)] > 0 ;
    let hassouth = y < properties.height - 1 && grid[getgridindex(properties,x,y+1)] > 0;
@@ -198,7 +268,7 @@ pub fn hasneighbours(properties: &WorldProperties, grid: &Vec<u8>, x: AddressSiz
    (hasnorth, haseast, hassouth, haswest)
 }
 
-pub fn countneighbours(properties: &WorldProperties, grid: &Vec<u8>, x: AddressSize, y: AddressSize) -> usize {
+pub fn countneighbours(properties: &Properties, grid: &Vec<u8>, x: AddressSize, y: AddressSize) -> usize {
    let (hasnorth, haseast, hassouth, haswest) = hasneighbours(properties, grid, x, y);
    let mut count = 0;
    if hasnorth { count += 1 }
@@ -209,7 +279,7 @@ pub fn countneighbours(properties: &WorldProperties, grid: &Vec<u8>, x: AddressS
 }
 
 
-pub fn printgrid(properties: &WorldProperties, grid: &Vec<u8>, debug: bool) {
+pub fn printgrid(properties: &Properties, grid: &Vec<u8>, debug: bool) {
     for y in 0..properties.height {
         for x in 0..properties.width {
             let index = getgridindex(properties,x,y);
@@ -323,7 +393,7 @@ fn main() {
         seed = rand::random::<u64>();
     }
     let regularseeds: Vec<u16> = regularseeds.unwrap().iter().map(|x:&&str| { x.parse::<u16>().unwrap() } ).collect();
-    let worldproperties = WorldProperties {
+    let properties = Properties {
         width: argmatches.value_of("width").unwrap().parse::<AddressSize>().unwrap() as AddressSize,
         height: argmatches.value_of("height").unwrap().parse::<AddressSize>().unwrap() as AddressSize,
         networkseed: seed,
@@ -331,6 +401,6 @@ fn main() {
         regularseeds: regularseeds,
         interconnect: argmatches.is_present("interconnect"),
     };
-    let grid = generate_grid(&worldproperties);
-    printgrid(&worldproperties, &grid, false);
+    let grid = generate_grid(&properties);
+    printgrid(&properties, &grid, false);
 }
