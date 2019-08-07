@@ -17,7 +17,7 @@ pub struct WorldProperties {
     ///initial backbone points
     pub backboneseeds: u16,
     pub regularseeds: Vec<u16>, //multiple iterations
-    pub deadends: bool,
+    pub interconnect: bool,
 }
 
 #[derive(Debug,Default)]
@@ -75,24 +75,11 @@ pub fn generate_grid(properties: &WorldProperties) -> Vec<u8> {
         //draw a random path
         if let Some(closest) = closest {
             let (to_x,to_y) = backboneseeds[closest];
-            let mut from_x = *x;
-            let mut from_y = *y;
-            let dx: i32 = if to_x > from_x { 1 } else { -1 };
-            let dy: i32 = if to_y > from_y { 1 } else { -1 };
-            while (from_x != to_x) || (from_y != to_y) {
-                if (from_x != *x) || (from_y != *y) {
-                    grid[getgridindex(properties, from_x,from_y)] = 2;
-                }
-                if (from_x != to_x) && ((from_y == to_y) || rng.gen()) {
-                    from_x = ((from_x as i32) + dx) as AddressSize;
-                } else if (from_y != to_y) && ((from_x == to_x) || rng.gen()) {
-                    from_y = ((from_y as i32) + dy) as AddressSize;
-                }
-            }
+            randompathto(properties, &mut grid, *x, *y, to_x, to_y, 2, &mut rng);
         }
     }
 
-    //Add regular nodes
+    //Add regular nodes (multiple iterations of a specific amount of seeds)
     for (iternr, regularseedgoal) in properties.regularseeds.iter().enumerate() {
         let mut regularseeds = 0;
         let height: u8 = iternr as u8 + 3;
@@ -123,41 +110,81 @@ pub fn generate_grid(properties: &WorldProperties) -> Vec<u8> {
                 //
                 //draw a random path to the closest backbone
                 if let Some((to_x,to_y)) = closest {
-                    randompathto(properties, &mut grid, x, y, to_x, to_y, &mut rng);
+                    randompathto(properties, &mut grid, x, y, to_x, to_y, height+1, &mut rng);
                 }
             }
         }
     }
 
-    if !properties.deadends {
+    if properties.interconnect {
+        //prune dead ends by creating more interconnections
         let mut deadends: Vec<(AddressSize,AddressSize)> = Vec::new();
+        let mut processed: Vec<usize> = Vec::new();
         //find all dead ends
         for y in 0..properties.height {
             for x in 0..properties.width {
-               if countneighbours(properties, &grid, x, y) == 1 {
+               //a dead end has only one neighbour
+               if grid[getgridindex(properties,x,y)] > 2 && countneighbours(properties, &grid, x, y) == 1 {
                    deadends.push((x,y));
                }
             }
         }
 
+        for (i, (x,y)) in deadends.iter().enumerate() {
+          if !processed.contains(&i) {
+            //we find the closest other dead end (or former dead end)
+            let mut mindistance: Option<f64> = None;
+            let mut closest: Option<usize> = None;
+            for (j, (x2,y2)) in deadends.iter().enumerate() {
+                if i != j {
+                    let distx: f64 = (*x2 as f64 - *x as f64).abs();
+                    let disty: f64 = (*y2 as f64 - *y as f64).abs();
+                    let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
+                    if mindistance.is_none() || distance < mindistance.unwrap() {
+                        mindistance = Some(distance);
+                        closest = Some(j);
+                    }
+                }
+            }
+            //draw a random path to the closest (former) dead end
+            if let Some(closest) = closest {
+                let (to_x,to_y) = deadends[closest];
+                randompathto(properties, &mut grid, *x, *y, to_x, to_y, 99, &mut rng);
+                processed.push(closest);
+            }
+          }
+        }
     }
-
     grid
 }
 
-pub fn randompathto(properties: &WorldProperties, grid: &mut Vec<u8>, x: AddressSize, y: AddressSize, to_x: AddressSize, to_y: AddressSize, rng: &mut Pcg32) {
-    let mut from_x = x;
-    let mut from_y = y;
-    let dx: i32 = if to_x > from_x { 1 } else { -1 };
-    let dy: i32 = if to_y > from_y { 1 } else { -1 };
-    while (from_x != to_x) || (from_y != to_y) {
-        if (from_x != x) || (from_y != y) {
-            grid[getgridindex(properties, from_x,from_y)] = properties.height +1;
-        }
-        if (from_x != to_x) && ((from_y == to_y) || rng.gen()) {
-            from_x = ((from_x as i32) + dx) as AddressSize;
-        } else if (from_y != to_y) && ((from_x == to_x) || rng.gen()) {
-            from_y = ((from_y as i32) + dy) as AddressSize;
+pub fn randompathto(properties: &WorldProperties, grid: &mut Vec<u8>, x: AddressSize, y: AddressSize, to_x: AddressSize, to_y: AddressSize, height: u8, rng: &mut Pcg32) {
+    let mut retry = true;
+    let mut retries = 0;
+    while retry {
+        let mut from_x = x;
+        let mut from_y = y;
+        let dx: i32 = if to_x > from_x { 1 } else { -1 };
+        let dy: i32 = if to_y > from_y { 1 } else { -1 };
+        let mut iteration = 0;
+        retry = false;
+        while (from_x != to_x) || (from_y != to_y) {
+            if (from_x != x) || (from_y != y) {
+                if grid[getgridindex(properties, from_x,from_y)] == 0 {
+                    grid[getgridindex(properties, from_x,from_y)] = height;
+                } else if iteration == 1 && retries < 5 {
+                    //first step must be to a node that is still empty, restart:
+                    retry = true;
+                    retries += 1;
+                    break;
+                }
+            }
+            if (from_x != to_x) && ((from_y == to_y) || rng.gen()) {
+                from_x = ((from_x as i32) + dx) as AddressSize;
+            } else if (from_y != to_y) && ((from_x == to_x) || rng.gen()) {
+                from_y = ((from_y as i32) + dy) as AddressSize;
+            }
+            iteration += 1;
         }
     }
 }
@@ -281,10 +308,10 @@ fn main() {
              .takes_value(true)
              .default_value("40,40,60")
         )
-        .arg(Arg::with_name("nodeadends")
-             .help("nodeadends")
-             .long("nodeadends")
-             .short("n")
+        .arg(Arg::with_name("interconnect")
+             .help("Generate more interconnections between branches, resulting in fewer dead ends")
+             .long("interconnect")
+             .short("i")
         )
         .get_matches();
 
@@ -302,7 +329,7 @@ fn main() {
         networkseed: seed,
         backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
         regularseeds: regularseeds,
-        deadends: !argmatches.is_present("nodeadends"),
+        interconnect: argmatches.is_present("interconnect"),
     };
     let grid = generate_grid(&worldproperties);
     printgrid(&worldproperties, &grid, false);
