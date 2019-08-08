@@ -14,16 +14,26 @@ pub struct PipeGridProperties {
     pub width: usize,
     pub height: usize,
     ///seed for the random number generator that creates the network
-    pub networkseed: u64,
+    pub seed: u64,
     ///initial backbone points
     pub backboneseeds: u16,
     pub regularseeds: Vec<u16>, //multiple iterations
     pub interconnect: bool,
 }
 
+#[derive(Debug,Default)]
+pub struct TerrainGridProperties {
+    pub width: usize,
+    pub height: usize,
+    pub waterlevel: usize,
+    ///seed for the random number generator that creates the network
+    pub seed: u64,
+    pub iterations: usize, //number of iterations
+}
 
-trait RenderGrid {
+trait RenderGrid<ScaleType> {
     fn render(&self) -> String;
+    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String;
 }
 
 pub struct Grid<ScaleType,ValueType> {
@@ -33,6 +43,11 @@ pub struct Grid<ScaleType,ValueType> {
 
 pub struct PipeGrid<ScaleType> {
     properties: PipeGridProperties,
+    grid: Grid<ScaleType,u8>,
+}
+
+pub struct TerrainGrid<ScaleType> {
+    properties: TerrainGridProperties,
     grid: Grid<ScaleType,u8>,
 }
 
@@ -160,28 +175,63 @@ impl<ScaleType,ValueType> Index<(ScaleType,ScaleType)> for Grid<ScaleType,ValueT
 }
 
 
-impl<ScaleType> RenderGrid for PipeGrid<ScaleType> where
+impl<ScaleType> RenderGrid<ScaleType> for PipeGrid<ScaleType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
 
     fn render(&self) -> String {
         let mut output: String = String::new();
         for y in range(ScaleType::zero(), self.grid.height()) {
             for x in range(ScaleType::zero(), self.grid.width()) {
-                let v = self.grid[(x,y)];
-                let chr: char = if v == 0 {
-                    ' '
-                } else {
-                   let (hasnorth, haseast, hassouth, haswest) = self.grid.hasneighbours(x, y);
-                   let isbackbone = self.grid[(x,y)] <= 2;
-                   getnodeglyph(hasnorth, haseast, hassouth, haswest, isbackbone)
-                };
-                output.push(chr);
+                output += self.rendercell(x,y).as_str();
             }
             output.push('\n');
         }
         output
     }
 
+    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String {
+        let v = self.grid[(x,y)];
+        let chr: char = if v == 0 {
+            ' '
+        } else {
+           let (hasnorth, haseast, hassouth, haswest) = self.grid.hasneighbours(x, y);
+           let isbackbone = self.grid[(x,y)] <= 2;
+           match (hasnorth, haseast, hassouth, haswest, isbackbone) {
+               (true,true,true,true, false) => '┼',
+               (true,true,true,true, true) => '╋',
+               (true,true,true,false, false) => '├',
+               (true,true,true,false, true) => '┣',
+               (false,true,true,true, false) => '┬',
+               (false,true,true,true, true) => '┳',
+               (true,false,true,true, false) => '┤',
+               (true,false,true,true, true) => '┫',
+               (true,true,false,true, false) => '┴',
+               (true,true,false,true, true) => '┻',
+               (true,true,false,false, false) => '└',
+               (true,true,false,false, true) => '┗',
+               (true,false,true,false, false) => '│',
+               (true,false,true,false, true) => '┃',
+               (true,false,false,true, false) => '┘',
+               (true,false,false,true, true) => '┛',
+               (false,true,true,false, false) => '┌',
+               (false,true,true,false, true) => '┏',
+               (false,true,false,true, false) => '─',
+               (false,true,false,true, true) => '━',
+               (false,false,true,true, false) => '┐',
+               (false,false,true,true, true) => '┓',
+               (true,false,false,false, false) => '╵',
+               (true,false,false,false, true) => '╹',
+               (false,true,false,false, false) => '╶',
+               (false,true,false,false, true) => '╺',
+               (false,false,true,false, false) => '╷',
+               (false,false,true,false, true) => '╻',
+               (false,false,false,true, false) => '╴',
+               (false,false,false,true, true) => '╸',
+               _ => '?',
+           }
+        };
+        chr.to_string()
+    }
 }
 
 impl<ScaleType> PipeGrid<ScaleType> where
@@ -189,7 +239,7 @@ impl<ScaleType> PipeGrid<ScaleType> where
 
     ///Generates the network (a planar graph), with a backbone
     pub fn generate(properties: PipeGridProperties) -> PipeGrid<ScaleType> {
-        let mut rng = Pcg32::seed_from_u64(properties.networkseed);
+        let mut rng = Pcg32::seed_from_u64(properties.seed);
         let mut grid: Grid<ScaleType,u8> = Grid::new(&ScaleType::from_usize(properties.width).unwrap(), &ScaleType::from_usize(properties.height).unwrap());
 
         let mut backboneseeds: Vec<(ScaleType,ScaleType)> = Vec::new();
@@ -312,41 +362,6 @@ impl<ScaleType> PipeGrid<ScaleType> where
 
 
 
-pub fn getnodeglyph(hasnorth:bool, haseast:bool, hassouth:bool, haswest:bool, isbackbone:bool) -> char {
-   match (hasnorth, haseast, hassouth, haswest, isbackbone) {
-       (true,true,true,true, false) => '┼',
-       (true,true,true,true, true) => '╋',
-       (true,true,true,false, false) => '├',
-       (true,true,true,false, true) => '┣',
-       (false,true,true,true, false) => '┬',
-       (false,true,true,true, true) => '┳',
-       (true,false,true,true, false) => '┤',
-       (true,false,true,true, true) => '┫',
-       (true,true,false,true, false) => '┴',
-       (true,true,false,true, true) => '┻',
-       (true,true,false,false, false) => '└',
-       (true,true,false,false, true) => '┗',
-       (true,false,true,false, false) => '│',
-       (true,false,true,false, true) => '┃',
-       (true,false,false,true, false) => '┘',
-       (true,false,false,true, true) => '┛',
-       (false,true,true,false, false) => '┌',
-       (false,true,true,false, true) => '┏',
-       (false,true,false,true, false) => '─',
-       (false,true,false,true, true) => '━',
-       (false,false,true,true, false) => '┐',
-       (false,false,true,true, true) => '┓',
-       (true,false,false,false, false) => '╵',
-       (true,false,false,false, true) => '╹',
-       (false,true,false,false, false) => '╶',
-       (false,true,false,false, true) => '╺',
-       (false,false,true,false, false) => '╷',
-       (false,false,true,false, true) => '╻',
-       (false,false,false,true, false) => '╴',
-       (false,false,false,true, true) => '╸',
-       _ => '?',
-   }
-}
 
 fn main() {
     let argmatches = App::new("mapgen")
@@ -406,7 +421,7 @@ fn main() {
     let properties = PipeGridProperties {
         width: argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize,
         height: argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize,
-        networkseed: seed,
+        seed: seed,
         backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
         regularseeds: regularseeds,
         interconnect: argmatches.is_present("interconnect"),
