@@ -393,10 +393,10 @@ impl<ScaleType> HeightGrid<ScaleType> where
         let mut rng = Pcg32::seed_from_u64(properties.seed);
         let mut grid: Grid<ScaleType,u8> = Grid::new(&ScaleType::from_usize(properties.width).unwrap(), &ScaleType::from_usize(properties.height).unwrap());
         for i in 0..properties.iterations {
-            let width: ScaleType = ScaleType::from_usize(rng.gen_range(1,properties.width / 5)).unwrap();
-            let height: ScaleType = ScaleType::from_usize(rng.gen_range(1,properties.width / 5)).unwrap();
-            let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.width)).unwrap();
-            let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.height)).unwrap();
+            let width: ScaleType = ScaleType::from_usize(rng.gen_range(1,properties.width / 5)).expect("Unable to compute width");
+            let height: ScaleType = ScaleType::from_usize(rng.gen_range(1,properties.width / 5)).expect("Unable to compute height");
+            let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.width)).expect("Unable to compute left");
+            let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.height)).expect("Unable to compute top");
             //TODO: implement edge smoothing
             for y in range(top, min(top + height, grid.height())) {
                 for x in range(left, min(left + width, grid.width())) {
@@ -489,6 +489,7 @@ fn main() {
              .help("Iterations in generation (for height map)")
              .long("iterations")
              .short("i")
+             .default_value("90")
         )
         .arg(Arg::with_name("type")
              .help("type")
