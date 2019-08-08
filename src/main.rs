@@ -6,6 +6,9 @@ use rand::{SeedableRng,Rng,random};
 use rand::prelude::IteratorRandom;
 use rand_pcg::Pcg32;
 use clap::{App,Arg};
+use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
+use std::ops::{Add,Sub,Index};
+use std::clone::Clone;
 
 pub type AddressSize = u8;
 
@@ -27,45 +30,61 @@ pub struct GenerationStatus {
     pub nodes: bool,
 }
 
+pub enum GridStyle {
+    PIPES,
+}
 
 pub struct Grid<ScaleType,ValueType> {
-    pub data: Vec<ValueType>,
-    pub width: ScaleType,
-    pub height: ScaleType,
+    data: Vec<ValueType>,
+    size: (ScaleType,ScaleType),
+    style: GridStyle,
 }
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
-    ScaleType: num::Integer, ValueType: num::Num {
-    pub fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq {
+    pub fn new(width: &ScaleType, height: &ScaleType) -> Grid<ScaleType,ValueType> {
         //create initial empty 2D grid
-        let mut grid: Vec<u8> = Vec::new(); //flattened grid
-        for _ in 0..height {
-            for _ in 0..width {
-                grid.push(0);
+        let mut grid: Vec<ValueType> = Vec::new(); //flattened grid
+        for _ in range(ScaleType::zero(), height.clone()) {
+            for _ in range(ScaleType::zero(), width.clone()) {
+                grid.push(ValueType::zero());
             }
         }
 
         Grid {
             data: grid,
-            width: width,
-            height: height,
+            size: (width.clone(), height.clone()),
+            style: GridStyle::PIPES
         }
     }
 
+    pub fn width(&self) -> ScaleType {
+        self.size.0.clone()
+    }
+
+    pub fn height(&self) -> ScaleType {
+        self.size.1.clone()
+    }
+
+    pub fn set_style(&mut self, style: GridStyle) {
+        self.style = style;
+    }
+
     pub fn index(&self, x: ScaleType, y: ScaleType) -> usize {
-       y as usize * self.width as usize + x as usize
+       (y * self.width() + x).to_usize().expect("Unable to cast to usize")
     }
 
     pub fn get(&self, x: ScaleType, y: ScaleType) -> Option<&ValueType> {
         self.data.get(self.index(x,y))
     }
 
-    pub fn get_mut(&self, x: ScaleType, y: ScaleType) -> Option<&mut ValueType> {
-        self.data.get_mut(self.index(x,y))
+    pub fn get_mut(&mut self, x: ScaleType, y: ScaleType) -> Option<&mut ValueType> {
+        let index = self.index(x,y);
+        self.data.get_mut(index)
     }
 
-    pub fn set(&self, x: ScaleType, y: ScaleType, value: ValueType) -> bool {
-        if let Some(mut v) = self.data.get_mut(x,y) {
+    pub fn set(&mut self, x: ScaleType, y: ScaleType, value: ValueType) -> bool {
+        if let Some(v) = self.get_mut(x,y) {
             *v = value;
             return true;
         }
@@ -73,10 +92,10 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
     }
 
     pub fn hasneighbours(&self,x: ScaleType, y: ScaleType) -> (bool, bool, bool, bool) {
-       let hasnorth = y > 0 && self.get(x,y-1) > 0;
-       let haseast = x < self.width - 1 && self.get(x+1,y) > 0 ;
-       let hassouth = y < self.height - 1 && self.get(x,y+1) > 0;
-       let haswest = x > 0 && self.get(x-1,y) > 0;
+       let hasnorth = y > ScaleType::zero() && self[(x,y-ScaleType::one())] > ValueType::zero();
+       let haseast = x < self.width() - ScaleType::one() && self[(x+ScaleType::one(),y)] > ValueType::zero();
+       let hassouth = y < self.height() - ScaleType::one() && self[(x,y+ScaleType::one())] > ValueType::zero();
+       let haswest = x > ScaleType::zero() && self[(x-ScaleType::one(),y)] > ValueType::zero();
        (hasnorth, haseast, hassouth, haswest)
     }
 
@@ -89,6 +108,18 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
        if haswest { count += 1 }
        count
     }
+
+}
+
+///Implementing the index ([]) operator for Grid
+impl<ScaleType,ValueType> Index<(ScaleType,ScaleType)> for Grid<ScaleType,ValueType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq {
+        type Output = ValueType;
+
+        fn index(&self, index: (ScaleType, ScaleType)) -> &Self::Output {
+            let (x,y) = index;
+            self.get(x,y).expect("Out of bounds")
+        }
 
 }
 
