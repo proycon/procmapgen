@@ -1,12 +1,16 @@
 extern crate rand;
 extern crate clap;
 extern crate num;
+extern crate ansi_term;
 
 use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use clap::{App,Arg};
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
 use std::ops::Index;
+use std::cmp::{min,max};
+use ansi_term::Colour::{White,RGB};
+
 
 
 #[derive(Debug,Default)]
@@ -22,10 +26,9 @@ pub struct PipeGridProperties {
 }
 
 #[derive(Debug,Default)]
-pub struct TerrainGridProperties {
+pub struct HeightGridProperties {
     pub width: usize,
     pub height: usize,
-    pub waterlevel: usize,
     ///seed for the random number generator that creates the network
     pub seed: u64,
     pub iterations: usize, //number of iterations
@@ -46,8 +49,8 @@ pub struct PipeGrid<ScaleType> {
     grid: Grid<ScaleType,u8>,
 }
 
-pub struct TerrainGrid<ScaleType> {
-    properties: TerrainGridProperties,
+pub struct HeightGrid<ScaleType> {
+    properties: HeightGridProperties,
     grid: Grid<ScaleType,u8>,
 }
 
@@ -77,6 +80,27 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         self.size.1.clone()
     }
 
+
+    pub fn max(&self) -> ValueType {
+        let mut largest: Option<ValueType> = None;
+        for v in self.data.iter() {
+            if largest.is_none() ||  largest.unwrap() < *v {
+                largest = Some(*v);
+            }
+        }
+        largest.expect("Grid has no data")
+    }
+
+    pub fn min(&self) -> ValueType {
+        let mut smallest: Option<ValueType> = None;
+        for v in self.data.iter() {
+            if smallest.is_none() ||  smallest.unwrap() > *v {
+                smallest = Some(*v);
+            }
+        }
+        smallest.expect("Grid has no data")
+    }
+
     pub fn index(&self, x: ScaleType, y: ScaleType) -> usize {
        (y * self.width() + x).to_usize().expect("Unable to cast to usize")
     }
@@ -88,6 +112,13 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
     pub fn get_mut(&mut self, x: ScaleType, y: ScaleType) -> Option<&mut ValueType> {
         let index = self.index(x,y);
         self.data.get_mut(index)
+    }
+
+    pub fn inc(&mut self, x: ScaleType, y: ScaleType, amount: ValueType) {
+        let index = self.index(x,y);
+        let mut v = self.data.get_mut(index).unwrap();
+        //TODO: do overflow checking
+        *v = *v + amount;
     }
 
     pub fn set(&mut self, x: ScaleType, y: ScaleType, value: ValueType) -> bool {
@@ -355,7 +386,53 @@ impl<ScaleType> PipeGrid<ScaleType> where
 
 }
 
+impl<ScaleType> HeightGrid<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
 
+    pub fn generate(properties: HeightGridProperties) -> HeightGrid<ScaleType> {
+        let mut rng = Pcg32::seed_from_u64(properties.seed);
+        let mut grid: Grid<ScaleType,u8> = Grid::new(&ScaleType::from_usize(properties.width).unwrap(), &ScaleType::from_usize(properties.height).unwrap());
+        for i in 0..properties.iterations {
+            let width: ScaleType = ScaleType::from_usize(rng.gen_range(1,properties.width / 5)).unwrap();
+            let height: ScaleType = ScaleType::from_usize(rng.gen_range(1,properties.width / 5)).unwrap();
+            let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.width)).unwrap();
+            let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.height)).unwrap();
+            //TODO: implement edge smoothing
+            for y in range(top, min(top + height, grid.height())) {
+                for x in range(left, min(left + width, grid.width())) {
+                    grid.inc(x,y, 1);
+                }
+            }
+        }
+        HeightGrid {
+            properties: properties,
+            grid: grid,
+        }
+    }
+}
+
+impl<ScaleType> RenderGrid<ScaleType> for HeightGrid<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    fn render(&self) -> String {
+        let mut output: String = String::new();
+        for y in range(ScaleType::zero(), self.grid.height()) {
+            for x in range(ScaleType::zero(), self.grid.width()) {
+                output += self.rendercell(x,y).as_str();
+            }
+            output.push('\n');
+        }
+        output
+    }
+
+    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String {
+        let max = self.grid.max();
+        let min = self.grid.min();
+        let v = self.grid[(x,y)];
+        let colour = (v - min) * (255/(max-min));
+        RGB(colour,colour,colour).paint("█").to_string()
+    }
+}
 
 
 
@@ -406,26 +483,56 @@ fn main() {
         .arg(Arg::with_name("interconnect")
              .help("Generate more interconnections between branches, resulting in fewer dead ends")
              .long("interconnect")
+             .short("x")
+        )
+        .arg(Arg::with_name("iterations")
+             .help("Iterations in generation (for height map)")
+             .long("iterations")
              .short("i")
+        )
+        .arg(Arg::with_name("type")
+             .help("type")
+             .long("type")
+             .short("t")
+             .takes_value(true)
+             .required(true)
+             .default_value("pipes")
         )
         .get_matches();
 
-    let regularseeds: Option<Vec<&str>>= argmatches.value_of("regularseeds").map(|regularseeds: &str| {
-                                    regularseeds.split_terminator(',').collect()
-                                });
     let mut seed: u64 = argmatches.value_of("seed").unwrap().parse::<u64>().unwrap();
     if seed == 0 {
         seed = rand::random::<u64>();
     }
-    let regularseeds: Vec<u16> = regularseeds.unwrap().iter().map(|x:&&str| { x.parse::<u16>().unwrap() } ).collect();
-    let properties = PipeGridProperties {
-        width: argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize,
-        height: argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize,
-        seed: seed,
-        backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
-        regularseeds: regularseeds,
-        interconnect: argmatches.is_present("interconnect"),
-    };
-    let grid: PipeGrid<u16> = PipeGrid::generate(properties);
-    println!("{}",grid.render());
+    match argmatches.value_of("type").unwrap() {
+        "pipes" => {
+            let regularseeds: Option<Vec<&str>>= argmatches.value_of("regularseeds").map(|regularseeds: &str| {
+                                    regularseeds.split_terminator(',').collect()
+                                });
+            let regularseeds: Vec<u16> = regularseeds.unwrap().iter().map(|x:&&str| { x.parse::<u16>().unwrap() } ).collect();
+            let properties = PipeGridProperties {
+                width: argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize,
+                height: argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize,
+                seed: seed,
+                backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
+                regularseeds: regularseeds,
+                interconnect: argmatches.is_present("interconnect"),
+            };
+            let grid: PipeGrid<u16> = PipeGrid::generate(properties);
+            println!("{}",grid.render());
+        },
+        "height" => {
+            let properties = HeightGridProperties {
+                width: argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize,
+                height: argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize,
+                seed: seed,
+                iterations: argmatches.value_of("iterations").unwrap().parse::<usize>().unwrap() as usize,
+            };
+            let grid: HeightGrid<u16> = HeightGrid::generate(properties);
+            println!("{}",grid.render());
+        },
+        _ => {
+            eprintln!("No such type");
+        }
+    }
 }
