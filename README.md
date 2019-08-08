@@ -11,6 +11,8 @@ A small toy project written in Rust: procedural generation of 2D grid-based maps
 
 ![Screenshot](https://raw.githubusercontent.com/proycon/procmapgen/master/screenshot.png)
 
+![Screenshot](https://raw.githubusercontent.com/proycon/procmapgen/master/screenshot2.png)
+
 ## Build instructions
 
 Assumes you have Rust and Cargo installed:
