@@ -3,19 +3,16 @@ extern crate clap;
 extern crate num;
 
 use rand::{SeedableRng,Rng,random};
-use rand::prelude::IteratorRandom;
 use rand_pcg::Pcg32;
 use clap::{App,Arg};
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
-use std::ops::{Add,Sub,Index};
-use std::clone::Clone;
+use std::ops::Index;
 
-pub type AddressSize = u8;
 
 #[derive(Debug,Default)]
-pub struct Properties {
-    pub width: AddressSize,
-    pub height: AddressSize,
+pub struct PipeGridProperties {
+    pub width: usize,
+    pub height: usize,
     ///seed for the random number generator that creates the network
     pub networkseed: u64,
     ///initial backbone points
@@ -30,12 +27,9 @@ pub struct GenerationStatus {
     pub nodes: bool,
 }
 
-pub enum GridStyle {
-    PIPES,
-}
 
-trait PipeGridRenderer<ScaleType, ValueType> {
-    fn render(&self) -> &str;
+trait RenderGrid {
+    fn render(&self) -> String;
 }
 
 pub struct Grid<ScaleType,ValueType> {
@@ -43,9 +37,14 @@ pub struct Grid<ScaleType,ValueType> {
     size: (ScaleType,ScaleType),
 }
 
+pub struct PipeGrid<ScaleType> {
+    properties: PipeGridProperties,
+    grid: Grid<ScaleType,u8>,
+}
+
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq + Copy {
     pub fn new(width: &ScaleType, height: &ScaleType) -> Grid<ScaleType,ValueType> {
         //create initial empty 2D grid
         let mut grid: Vec<ValueType> = Vec::new(); //flattened grid
@@ -58,7 +57,6 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         Grid {
             data: grid,
             size: (width.clone(), height.clone()),
-            style: GridStyle::PIPES
         }
     }
 
@@ -68,10 +66,6 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
     pub fn height(&self) -> ScaleType {
         self.size.1.clone()
-    }
-
-    pub fn set_style(&mut self, style: GridStyle) {
-        self.style = style;
     }
 
     pub fn index(&self, x: ScaleType, y: ScaleType) -> usize {
@@ -113,11 +107,55 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
        count
     }
 
+    ///A simple euclidian distance function
+    pub fn distance(&self, x: ScaleType, y: ScaleType, x2: ScaleType, y2: ScaleType) -> f64 {
+        //self is passed (though unused) just so we don't need type annotations
+        let x = x.to_f64().unwrap();
+        let y = y.to_f64().unwrap();
+        let x2 = x2.to_f64().unwrap();
+        let y2 = y2.to_f64().unwrap();
+        let distx: f64 = (x2 - x).abs();
+        let disty: f64 = (y2 - y).abs();
+        let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
+        distance
+    }
+
+    pub fn randompathto(&mut self, rng: &mut Pcg32, x: ScaleType, y: ScaleType, to_x: ScaleType, to_y: ScaleType, height: ValueType) {
+        let mut retry = true;
+        let mut retries = 0;
+        while retry {
+            let mut from_x = x;
+            let mut from_y = y;
+            let dx: i32 = if to_x > from_x { 1 } else { -1 };
+            let dy: i32 = if to_y > from_y { 1 } else { -1 };
+            let mut iteration = 0;
+            retry = false;
+            while (from_x != to_x) || (from_y != to_y) {
+                if (from_x != x) || (from_y != y) {
+                    if self[(from_x,from_y)] == ValueType::zero() {
+                        self.set(from_x,from_y,height);
+                    } else if iteration == 1 && retries < 5 {
+                        //first step must be to a node that is still empty, restart:
+                        retry = true;
+                        retries += 1;
+                        break;
+                    }
+                }
+                if (from_x != to_x) && ((from_y == to_y) || rng.gen()) {
+                    from_x = ScaleType::from_i32((from_x.to_i32().expect("conversion problem")) + dx).expect("conversion problem");
+                } else if (from_y != to_y) && ((from_x == to_x) || rng.gen()) {
+                    from_y = ScaleType::from_i32((from_y.to_i32().expect("conversion problem")) + dy).expect("conversion problem");
+                }
+                iteration += 1;
+            }
+        }
+    }
+
 }
 
 ///Implementing the index ([]) operator for Grid
 impl<ScaleType,ValueType> Index<(ScaleType,ScaleType)> for Grid<ScaleType,ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq + Copy {
         type Output = ValueType;
 
         fn index(&self, index: (ScaleType, ScaleType)) -> &Self::Output {
@@ -128,243 +166,157 @@ impl<ScaleType,ValueType> Index<(ScaleType,ScaleType)> for Grid<ScaleType,ValueT
 }
 
 
-impl<ScaleType,ValueType> PipeGridRenderer<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq {
+impl<ScaleType> RenderGrid for PipeGrid<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
 
-    fn render(&self) -> &str {
-        for y in range(ScaleType::zero(), self.height()) {
-            for x in range(ScaleType::zero(), self.width()) {
-                let index = self.index(x,y);
-                let chr: char = match grid[index] {
-                    0 => ' ',
-                    _ => {
-                       if debug {
-                           grid[index] as char
-                       } else {
-                           let (hasnorth, haseast, hassouth, haswest) = hasneighbours(properties, grid, x, y);
-                           let isbackbone = grid[index] <= 2;
-                           getnodeglyph(hasnorth, haseast, hassouth, haswest, isbackbone)
-
-                       }
-                    }
+    fn render(&self) -> String {
+        let mut output: String = String::new();
+        for y in range(ScaleType::zero(), self.grid.height()) {
+            for x in range(ScaleType::zero(), self.grid.width()) {
+                let v = self.grid[(x,y)];
+                let chr: char = if v == 0 {
+                    ' '
+                } else {
+                   let (hasnorth, haseast, hassouth, haswest) = self.grid.hasneighbours(x, y);
+                   let isbackbone = self.grid[(x,y)] <= 2;
+                   getnodeglyph(hasnorth, haseast, hassouth, haswest, isbackbone)
                 };
-                print!("{}",chr);
+                output.push(chr);
             }
-            println!("");
+            output.push('\n');
         }
+        output
     }
 
 }
 
+impl<ScaleType> PipeGrid<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
 
+    ///Generates the network (a planar graph), with a backbone
+    pub fn generate(properties: PipeGridProperties) -> PipeGrid<ScaleType> {
+        let mut rng = Pcg32::seed_from_u64(properties.networkseed);
+        let mut grid: Grid<ScaleType,u8> = Grid::new(&ScaleType::from_usize(properties.width).unwrap(), &ScaleType::from_usize(properties.height).unwrap());
 
-
-pub fn getgridindex(properties: &Properties, x: AddressSize,y: AddressSize) -> usize {
-   y as usize * properties.width as usize + x as usize
-}
-
-
-///Generates the network (a planar graph), with a backbone
-pub fn generate_grid(properties: &Properties) -> Vec<u8> {
-    let mut rng = Pcg32::seed_from_u64(properties.networkseed);
-    let mut grid: Vec<u8> = Vec::new(); //flattened grid
-
-    //create initial empty 2D grid
-    for _ in 0..properties.height {
-        for _ in 0..properties.width {
-            grid.push(0);
-        }
-    }
-
-    let mut backboneseeds: Vec<(AddressSize,AddressSize)> = Vec::new();
-    //add initial backbone nodes
-    for _ in 0..properties.backboneseeds {
-        let x: AddressSize = rng.gen_range(0,properties.width);
-        let y: AddressSize = rng.gen_range(0,properties.height);
-        let index = getgridindex(properties, x,y);
-        grid[index] = 1;
-        backboneseeds.push((x,y));
-    }
-
-    let mut processed: Vec<usize> = Vec::new();
-    //connect each backnode node to the nearest other
-    for (i, (x,y)) in backboneseeds.iter().enumerate() {
-        processed.push(i);
-
-        //find the nearest unconnected other
-        let mut mindistance: Option<f64> = None;
-        let mut closest: Option<usize> = None;
-        for (j, (x2,y2)) in backboneseeds.iter().enumerate() {
-            if !processed.contains(&j) {
-                let distx: f64 = (*x2 as f64 - *x as f64).abs();
-                let disty: f64 = (*y2 as f64 - *y as f64).abs();
-                let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
-                if mindistance.is_none() || distance < mindistance.unwrap() {
-                    mindistance = Some(distance);
-                    closest = Some(j);
-                }
-            }
+        let mut backboneseeds: Vec<(ScaleType,ScaleType)> = Vec::new();
+        //add initial backbone nodes
+        for _ in 0..properties.backboneseeds {
+            let x: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.width)).unwrap();
+            let y: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.height)).unwrap();
+            grid.set(x,y, 1);
+            backboneseeds.push((x,y));
         }
 
-        //draw a random path
-        if let Some(closest) = closest {
-            let (to_x,to_y) = backboneseeds[closest];
-            randompathto(properties, &mut grid, *x, *y, to_x, to_y, 2, &mut rng);
-        }
-    }
-
-    //Add regular nodes (multiple iterations of a specific amount of seeds)
-    for (iternr, regularseedgoal) in properties.regularseeds.iter().enumerate() {
-        let mut regularseeds = 0;
-        let height: u8 = iternr as u8 + 3;
-        while regularseeds < *regularseedgoal {
-            let x: AddressSize = rng.gen_range(0,properties.width);
-            let y: AddressSize = rng.gen_range(0,properties.height);
-            let index = getgridindex(properties, x,y);
-            if grid[index] == 0 {
-                regularseeds += 1;
-                grid[index] = height;
-                //find the closest backbone
-                let mut mindistance: Option<f64> = None;
-                let mut closest: Option<(AddressSize,AddressSize)> = None;
-                for y2 in 0..properties.height {
-                    for x2 in 0..properties.width {
-                        let index = getgridindex(properties, x2,y2);
-                        if grid[index] > 0 && grid[index] < height {
-                            let distx: f64 = (x2 as f64 - x as f64).abs();
-                            let disty: f64 = (y2 as f64 - y as f64).abs();
-                            let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
-                            if mindistance.is_none() || distance < mindistance.unwrap() {
-                                mindistance = Some(distance);
-                                closest = Some((x2,y2));
-                            }
-                        }
-                    }
-                }
-                //
-                //draw a random path to the closest backbone
-                if let Some((to_x,to_y)) = closest {
-                    randompathto(properties, &mut grid, x, y, to_x, to_y, height+1, &mut rng);
-                }
-            }
-        }
-    }
-
-    if properties.interconnect {
-        //prune dead ends by creating more interconnections
-        let mut deadends: Vec<(AddressSize,AddressSize)> = Vec::new();
         let mut processed: Vec<usize> = Vec::new();
-        //find all dead ends
-        for y in 0..properties.height {
-            for x in 0..properties.width {
-               //a dead end has only one neighbour
-               if grid[getgridindex(properties,x,y)] > 2 && countneighbours(properties, &grid, x, y) == 1 {
-                   deadends.push((x,y));
-               }
-            }
-        }
+        //connect each backnode node to the nearest other
+        for (i, (x,y)) in backboneseeds.iter().enumerate() {
+            processed.push(i);
 
-        for (i, (x,y)) in deadends.iter().enumerate() {
-          if !processed.contains(&i) {
-            //we find the closest other dead end (or former dead end)
+            //find the nearest unconnected other
             let mut mindistance: Option<f64> = None;
             let mut closest: Option<usize> = None;
-            for (j, (x2,y2)) in deadends.iter().enumerate() {
-                if i != j {
-                    let distx: f64 = (*x2 as f64 - *x as f64).abs();
-                    let disty: f64 = (*y2 as f64 - *y as f64).abs();
-                    let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
+            for (j, (x2,y2)) in backboneseeds.iter().enumerate() {
+                if !processed.contains(&j) {
+                    let distance =  grid.distance(*x,*y,*x2,*y2);
                     if mindistance.is_none() || distance < mindistance.unwrap() {
                         mindistance = Some(distance);
                         closest = Some(j);
                     }
                 }
             }
-            //draw a random path to the closest (former) dead end
-            if let Some(closest) = closest {
-                let (to_x,to_y) = deadends[closest];
-                randompathto(properties, &mut grid, *x, *y, to_x, to_y, 99, &mut rng);
-                processed.push(closest);
-            }
-          }
-        }
-    }
-    grid
-}
 
-pub fn randompathto(properties: &Properties, grid: &mut Vec<u8>, x: AddressSize, y: AddressSize, to_x: AddressSize, to_y: AddressSize, height: u8, rng: &mut Pcg32) {
-    let mut retry = true;
-    let mut retries = 0;
-    while retry {
-        let mut from_x = x;
-        let mut from_y = y;
-        let dx: i32 = if to_x > from_x { 1 } else { -1 };
-        let dy: i32 = if to_y > from_y { 1 } else { -1 };
-        let mut iteration = 0;
-        retry = false;
-        while (from_x != to_x) || (from_y != to_y) {
-            if (from_x != x) || (from_y != y) {
-                if grid[getgridindex(properties, from_x,from_y)] == 0 {
-                    grid[getgridindex(properties, from_x,from_y)] = height;
-                } else if iteration == 1 && retries < 5 {
-                    //first step must be to a node that is still empty, restart:
-                    retry = true;
-                    retries += 1;
-                    break;
+            //draw a random path
+            if let Some(closest) = closest {
+                let (to_x,to_y) = backboneseeds[closest];
+                grid.randompathto(&mut rng, *x, *y, to_x, to_y, 2);
+            }
+        }
+
+        //Add regular nodes (multiple iterations of a specific amount of seeds)
+        for (iternr, regularseedgoal) in properties.regularseeds.iter().enumerate() {
+            let mut regularseeds = 0;
+            let height: u8 = iternr as u8 + 3;
+            while regularseeds < *regularseedgoal {
+                let x: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.width)).unwrap();
+                let y: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.height)).unwrap();
+                if grid[(x,y)] == 0 {
+                    regularseeds += 1;
+                    grid.set(x,y,height);
+                    //find the closest backbone
+                    let mut mindistance: Option<f64> = None;
+                    let mut closest: Option<(ScaleType,ScaleType)> = None;
+                    for y2 in range(ScaleType::zero(), grid.width()) {
+                        for x2 in range(ScaleType::zero(), grid.height()) {
+                            let v = grid[(x,y)];
+                            if v > 0 && v < height {
+                                let distance: f64 = grid.distance(x,y,x2,y2);
+                                if mindistance.is_none() || distance < mindistance.unwrap() {
+                                    mindistance = Some(distance);
+                                    closest = Some((x2,y2));
+                                }
+                            }
+                        }
+                    }
+                    //
+                    //draw a random path to the closest backbone
+                    if let Some((to_x,to_y)) = closest {
+                        grid.randompathto(&mut rng, x, y, to_x, to_y, height+1);
+                    }
                 }
             }
-            if (from_x != to_x) && ((from_y == to_y) || rng.gen()) {
-                from_x = ((from_x as i32) + dx) as AddressSize;
-            } else if (from_y != to_y) && ((from_x == to_x) || rng.gen()) {
-                from_y = ((from_y as i32) + dy) as AddressSize;
-            }
-            iteration += 1;
         }
-    }
-}
 
-
-pub fn hasneighbours(properties: &Properties, grid: &Vec<u8>, x: AddressSize, y: AddressSize) -> (bool, bool, bool, bool) {
-   let hasnorth = y > 0 && grid[getgridindex(properties, x, y-1)] > 0;
-   let haseast = x < properties.width - 1 && grid[getgridindex(properties, x+1, y)] > 0 ;
-   let hassouth = y < properties.height - 1 && grid[getgridindex(properties,x,y+1)] > 0;
-   let haswest = x > 0 && grid[getgridindex(properties, x-1, y)] > 0;
-   (hasnorth, haseast, hassouth, haswest)
-}
-
-pub fn countneighbours(properties: &Properties, grid: &Vec<u8>, x: AddressSize, y: AddressSize) -> usize {
-   let (hasnorth, haseast, hassouth, haswest) = hasneighbours(properties, grid, x, y);
-   let mut count = 0;
-   if hasnorth { count += 1 }
-   if haseast { count += 1 }
-   if hassouth { count += 1 }
-   if haswest { count += 1 }
-   count
-}
-
-
-pub fn printgrid(properties: &Properties, grid: &Vec<u8>, debug: bool) {
-    for y in 0..properties.height {
-        for x in 0..properties.width {
-            let index = getgridindex(properties,x,y);
-            let chr: char = match grid[index] {
-                0 => ' ',
-                _ => {
-                   if debug {
-                       grid[index] as char
-                   } else {
-                       let (hasnorth, haseast, hassouth, haswest) = hasneighbours(properties, grid, x, y);
-                       let isbackbone = grid[index] <= 2;
-                       getnodeglyph(hasnorth, haseast, hassouth, haswest, isbackbone)
-
+        if properties.interconnect {
+            //prune dead ends by creating more interconnections
+            let mut deadends: Vec<(ScaleType,ScaleType)> = Vec::new();
+            let mut processed: Vec<usize> = Vec::new();
+            //find all dead ends
+            for y in range(ScaleType::zero(), grid.width()) {
+                for x in range(ScaleType::zero(), grid.height()) {
+                   //a dead end has only one neighbour
+                   if grid[(x,y)] > 2 && grid.countneighbours(x, y) == 1 {
+                       deadends.push((x,y));
                    }
                 }
-            };
-            print!("{}",chr);
+            }
+
+            for (i, (x,y)) in deadends.iter().enumerate() {
+              if !processed.contains(&i) {
+                //we find the closest other dead end (or former dead end)
+                let mut mindistance: Option<f64> = None;
+                let mut closest: Option<usize> = None;
+                for (j, (x2,y2)) in deadends.iter().enumerate() {
+                    if i != j {
+                        let distance: f64 = grid.distance(*x,*y,*x2,*y2);
+                        if mindistance.is_none() || distance < mindistance.unwrap() {
+                            mindistance = Some(distance);
+                            closest = Some(j);
+                        }
+                    }
+                }
+                //draw a random path to the closest (former) dead end
+                if let Some(closest) = closest {
+                    let (to_x,to_y) = deadends[closest];
+                    grid.randompathto(&mut rng, *x, *y, to_x, to_y, 99);
+                    processed.push(closest);
+                }
+              }
+            }
         }
-        println!("");
+        PipeGrid {
+            properties: properties,
+            grid: grid,
+        }
     }
+
 }
+
+
+
+
+
+
+
 
 pub fn getnodeglyph(hasnorth:bool, haseast:bool, hassouth:bool, haswest:bool, isbackbone:bool) -> char {
    match (hasnorth, haseast, hassouth, haswest, isbackbone) {
@@ -457,14 +409,14 @@ fn main() {
         seed = rand::random::<u64>();
     }
     let regularseeds: Vec<u16> = regularseeds.unwrap().iter().map(|x:&&str| { x.parse::<u16>().unwrap() } ).collect();
-    let properties = Properties {
-        width: argmatches.value_of("width").unwrap().parse::<AddressSize>().unwrap() as AddressSize,
-        height: argmatches.value_of("height").unwrap().parse::<AddressSize>().unwrap() as AddressSize,
+    let properties = PipeGridProperties {
+        width: argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize,
+        height: argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize,
         networkseed: seed,
         backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
         regularseeds: regularseeds,
         interconnect: argmatches.is_present("interconnect"),
     };
-    let grid = generate_grid(&properties);
-    printgrid(&properties, &grid, false);
+    let grid: PipeGrid<u16> = PipeGrid::generate(properties);
+    grid.render();
 }
