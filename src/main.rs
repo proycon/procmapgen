@@ -245,9 +245,9 @@ impl<ScaleType> PipeGrid<ScaleType> where
                     //find the closest backbone
                     let mut mindistance: Option<f64> = None;
                     let mut closest: Option<(ScaleType,ScaleType)> = None;
-                    for y2 in range(ScaleType::zero(), grid.width()) {
-                        for x2 in range(ScaleType::zero(), grid.height()) {
-                            let v = grid[(x,y)];
+                    for y2 in range(ScaleType::zero(), grid.height()) {
+                        for x2 in range(ScaleType::zero(), grid.width()) {
+                            let v = grid[(x2,y2)];
                             if v > 0 && v < height {
                                 let distance: f64 = grid.distance(x,y,x2,y2);
                                 if mindistance.is_none() || distance < mindistance.unwrap() {
@@ -271,8 +271,8 @@ impl<ScaleType> PipeGrid<ScaleType> where
             let mut deadends: Vec<(ScaleType,ScaleType)> = Vec::new();
             let mut processed: Vec<usize> = Vec::new();
             //find all dead ends
-            for y in range(ScaleType::zero(), grid.width()) {
-                for x in range(ScaleType::zero(), grid.height()) {
+            for y in range(ScaleType::zero(), grid.height()) {
+                for x in range(ScaleType::zero(), grid.width()) {
                    //a dead end has only one neighbour
                    if grid[(x,y)] > 2 && grid.countneighbours(x, y) == 1 {
                        deadends.push((x,y));
@@ -418,5 +418,5 @@ fn main() {
         interconnect: argmatches.is_present("interconnect"),
     };
     let grid: PipeGrid<u16> = PipeGrid::generate(properties);
-    grid.render();
+    println!("{}",grid.render());
 }
