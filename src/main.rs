@@ -2,7 +2,7 @@ extern crate rand;
 extern crate clap;
 extern crate num;
 
-use rand::{SeedableRng,Rng,random};
+use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use clap::{App,Arg};
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
@@ -19,12 +19,6 @@ pub struct PipeGridProperties {
     pub backboneseeds: u16,
     pub regularseeds: Vec<u16>, //multiple iterations
     pub interconnect: bool,
-}
-
-#[derive(Debug,Default)]
-pub struct GenerationStatus {
-    pub players: bool,
-    pub nodes: bool,
 }
 
 
