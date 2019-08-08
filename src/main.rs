@@ -34,11 +34,15 @@ pub enum GridStyle {
     PIPES,
 }
 
+trait PipeGridRenderer<ScaleType, ValueType> {
+    fn render(&self) -> &str;
+}
+
 pub struct Grid<ScaleType,ValueType> {
     data: Vec<ValueType>,
     size: (ScaleType,ScaleType),
-    style: GridStyle,
 }
+
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq {
@@ -120,6 +124,35 @@ impl<ScaleType,ValueType> Index<(ScaleType,ScaleType)> for Grid<ScaleType,ValueT
             let (x,y) = index;
             self.get(x,y).expect("Out of bounds")
         }
+
+}
+
+
+impl<ScaleType,ValueType> PipeGridRenderer<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq {
+
+    fn render(&self) -> &str {
+        for y in range(ScaleType::zero(), self.height()) {
+            for x in range(ScaleType::zero(), self.width()) {
+                let index = self.index(x,y);
+                let chr: char = match grid[index] {
+                    0 => ' ',
+                    _ => {
+                       if debug {
+                           grid[index] as char
+                       } else {
+                           let (hasnorth, haseast, hassouth, haswest) = hasneighbours(properties, grid, x, y);
+                           let isbackbone = grid[index] <= 2;
+                           getnodeglyph(hasnorth, haseast, hassouth, haswest, isbackbone)
+
+                       }
+                    }
+                };
+                print!("{}",chr);
+            }
+            println!("");
+        }
+    }
 
 }
 
