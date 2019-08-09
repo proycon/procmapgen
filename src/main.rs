@@ -521,7 +521,7 @@ fn main() {
                                     regularseeds.split_terminator(',').collect()
                                 });
             let regularseeds: Vec<u16> = regularseeds.unwrap().iter().map(|x:&&str| { x.parse::<u16>().unwrap() } ).collect();
-            let grid: Grid<u16,u8> = PipeGrid::<u16,u8>::generate(width as u16,height as u16, seed, PipeGridProperties {
+            let grid: Grid<u16,u8> = <Grid<u16,u8> as PipeGrid<u16,u8>>::generate(width as u16,height as u16, seed, PipeGridProperties {
                 backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
                 regularseeds: regularseeds,
                 interconnect: argmatches.is_present("interconnect"),
@@ -529,7 +529,7 @@ fn main() {
             println!("{}", PipeGrid::render(&grid));
         },
         "height" => {
-            let grid: Grid<u16,u8> = HeightGrid::generate(width as u16, height as u16, seed, HeightGridProperties {
+            let grid: Grid<u16,u8> = <Grid<u16,u8> as HeightGrid<u16,u8>>::generate(width as u16, height as u16, seed, HeightGridProperties {
                 iterations: argmatches.value_of("iterations").unwrap().parse::<usize>().unwrap() as usize,
             });
             println!("{}", HeightGrid::render(&grid));
