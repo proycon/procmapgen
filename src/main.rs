@@ -15,23 +15,18 @@ use ansi_term::Colour::{White,RGB};
 
 #[derive(Debug,Default)]
 pub struct PipeGridProperties {
-    pub width: usize,
-    pub height: usize,
-    ///seed for the random number generator that creates the network
-    pub seed: u64,
     ///initial backbone points
     pub backboneseeds: u16,
+    ///amount of regular seeds to place, each element corresponds to an iteration
     pub regularseeds: Vec<u16>, //multiple iterations
+    ///prune dead-ends to a large extent by interconnecting them
     pub interconnect: bool,
 }
 
 #[derive(Debug,Default)]
 pub struct HeightGridProperties {
-    pub width: usize,
-    pub height: usize,
-    ///seed for the random number generator that creates the network
-    pub seed: u64,
-    pub iterations: usize, //number of iterations
+    ///number of iterations
+    pub iterations: usize,
 }
 
 trait RenderGrid<ScaleType> {
@@ -55,29 +50,38 @@ pub struct HeightGrid<ScaleType> {
 }
 
 
+
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy, ValueType: Num + PartialOrd + PartialEq + Copy {
-    pub fn new(width: &ScaleType, height: &ScaleType) -> Grid<ScaleType,ValueType> {
+    pub fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
         //create initial empty 2D grid
         let mut grid: Vec<ValueType> = Vec::new(); //flattened grid
-        for _ in range(ScaleType::zero(), height.clone()) {
-            for _ in range(ScaleType::zero(), width.clone()) {
+        for _ in range(ScaleType::zero(), height) {
+            for _ in range(ScaleType::zero(), width) {
                 grid.push(ValueType::zero());
             }
         }
 
         Grid {
             data: grid,
-            size: (width.clone(), height.clone()),
+            size: (width, height),
         }
     }
 
     pub fn width(&self) -> ScaleType {
-        self.size.0.clone()
+        self.size.0
     }
 
     pub fn height(&self) -> ScaleType {
-        self.size.1.clone()
+        self.size.1
+    }
+
+    pub fn width_as_usize(&self) -> usize {
+        self.size.0.to_usize().unwrap()
+    }
+
+    pub fn height_as_usize(&self) -> usize {
+        self.size.1.to_usize().unwrap()
     }
 
 
@@ -269,15 +273,15 @@ impl<ScaleType> PipeGrid<ScaleType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
 
     ///Generates the network (a planar graph), with a backbone
-    pub fn generate(properties: PipeGridProperties) -> PipeGrid<ScaleType> {
-        let mut rng = Pcg32::seed_from_u64(properties.seed);
-        let mut grid: Grid<ScaleType,u8> = Grid::new(&ScaleType::from_usize(properties.width).unwrap(), &ScaleType::from_usize(properties.height).unwrap());
+    pub fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: PipeGridProperties) -> PipeGrid<ScaleType> {
+        let mut rng = Pcg32::seed_from_u64(seed);
+        let mut grid: Grid<ScaleType,u8> = Grid::new(width, height);
 
         let mut backboneseeds: Vec<(ScaleType,ScaleType)> = Vec::new();
         //add initial backbone nodes
         for _ in 0..properties.backboneseeds {
-            let x: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.width)).unwrap();
-            let y: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.height)).unwrap();
+            let x: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).unwrap();
+            let y: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).unwrap();
             grid.set(x,y, 1);
             backboneseeds.push((x,y));
         }
@@ -312,8 +316,8 @@ impl<ScaleType> PipeGrid<ScaleType> where
             let mut regularseeds = 0;
             let height: u8 = iternr as u8 + 3;
             while regularseeds < *regularseedgoal {
-                let x: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.width)).unwrap();
-                let y: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.height)).unwrap();
+                let x: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).unwrap();
+                let y: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).unwrap();
                 if grid[(x,y)] == 0 {
                     regularseeds += 1;
                     grid.set(x,y,height);
@@ -389,14 +393,14 @@ impl<ScaleType> PipeGrid<ScaleType> where
 impl<ScaleType> HeightGrid<ScaleType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
 
-    pub fn generate(properties: HeightGridProperties) -> HeightGrid<ScaleType> {
-        let mut rng = Pcg32::seed_from_u64(properties.seed);
-        let mut grid: Grid<ScaleType,u8> = Grid::new(&ScaleType::from_usize(properties.width).unwrap(), &ScaleType::from_usize(properties.height).unwrap());
+    pub fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: HeightGridProperties) -> HeightGrid<ScaleType> {
+        let mut rng = Pcg32::seed_from_u64(seed);
+        let mut grid: Grid<ScaleType,u8> = Grid::new(width,height);
         for i in 0..properties.iterations {
-            let width: ScaleType = ScaleType::from_usize(rng.gen_range(1,properties.width / 5)).expect("Unable to compute width");
-            let height: ScaleType = ScaleType::from_usize(rng.gen_range(1,properties.width / 5)).expect("Unable to compute height");
-            let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.width)).expect("Unable to compute left");
-            let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,properties.height)).expect("Unable to compute top");
+            let width: ScaleType = ScaleType::from_usize(rng.gen_range(1,grid.width_as_usize() / 5)).expect("Unable to compute width");
+            let height: ScaleType = ScaleType::from_usize(rng.gen_range(1,grid.height_as_usize() / 5)).expect("Unable to compute height");
+            let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).expect("Unable to compute left");
+            let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).expect("Unable to compute top");
             //TODO: implement edge smoothing
             for y in range(top, min(top + height, grid.height())) {
                 for x in range(left, min(left + width, grid.width())) {
@@ -505,6 +509,8 @@ fn main() {
     if seed == 0 {
         seed = rand::random::<u64>();
     }
+    let width =  argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize;
+    let height = argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize;
     match argmatches.value_of("type").unwrap() {
         "pipes" => {
             let regularseeds: Option<Vec<&str>>= argmatches.value_of("regularseeds").map(|regularseeds: &str| {
@@ -512,24 +518,18 @@ fn main() {
                                 });
             let regularseeds: Vec<u16> = regularseeds.unwrap().iter().map(|x:&&str| { x.parse::<u16>().unwrap() } ).collect();
             let properties = PipeGridProperties {
-                width: argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize,
-                height: argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize,
-                seed: seed,
                 backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
                 regularseeds: regularseeds,
                 interconnect: argmatches.is_present("interconnect"),
             };
-            let grid: PipeGrid<u16> = PipeGrid::generate(properties);
+            let grid: PipeGrid<u16> = PipeGrid::generate(width as u16,height as u16, seed, properties);
             println!("{}",grid.render());
         },
         "height" => {
             let properties = HeightGridProperties {
-                width: argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize,
-                height: argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize,
-                seed: seed,
                 iterations: argmatches.value_of("iterations").unwrap().parse::<usize>().unwrap() as usize,
             };
-            let grid: HeightGrid<u16> = HeightGrid::generate(properties);
+            let grid: HeightGrid<u16> = HeightGrid::generate(width as u16, height as u16, seed, properties);
             println!("{}",grid.render());
         },
         _ => {
