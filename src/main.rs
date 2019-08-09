@@ -535,6 +535,45 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                         closest = Some(i);
                     }
                 }
+
+                if let Some(index) = closest {
+                    let (left2, top2, width2, height2) = isolatedrooms.remove(index);
+                    let mut corridor_h: Option<ScaleType> = None;
+                    let mut corridor_v: Option<ScaleType> = None;
+                    //can we do a horizontal corridor?
+                    if top <= top2 + height2 && top + height >= top2 {
+                        //horizontal corridor
+                        corridor_h = Some(ScaleType::from_usize(rng.gen_range( top2.to_usize().unwrap() , top2.to_usize().unwrap() + height2.to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                    } else if top2 <= top + height && top2 + height2 >= top {
+                        //horizontal corridor
+                        corridor_h = Some(ScaleType::from_usize(rng.gen_range( top.to_usize().unwrap() , top.to_usize().unwrap() + height.to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                    } else if left <= left2 + width2 && left + width >= left2 {
+                        corridor_v = Some(ScaleType::from_usize(rng.gen_range( left2.to_usize().unwrap() , left2.to_usize().unwrap() + width2.to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                    } else if left2 <= left + width && left2 + width2 >= left {
+                        corridor_v = Some(ScaleType::from_usize(rng.gen_range( left.to_usize().unwrap() , left.to_usize().unwrap() + width.to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                    }
+                    if let Some(corridor_h) = corridor_h {
+                        let (begin_x, end_x) = if left < left2 {
+                            (left + width, left2)
+                        } else {
+                            (left2 + width2, left)
+                        };
+                        for x in range(begin_x, end_x) {
+                            grid.set(x,corridor_h, ValueType::one());
+                        }
+                    } else if let Some(corridor_v) = corridor_v {
+                        let (begin_y, end_y) = if top < top2 {
+                            (top + height, top2)
+                        } else {
+                            (top2 + height2, top)
+                        };
+                        for y in range(begin_y, end_y) {
+                            grid.set(corridor_v,y, ValueType::one());
+                        }
+                    } else {
+                        //TODO: cornered corridors
+                    }
+                }
             }
         }
         grid
