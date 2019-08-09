@@ -412,10 +412,13 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
             let height: ScaleType = ScaleType::from_usize(rng.gen_range(1,grid.height_as_usize() / 5)).expect("Unable to compute height");
             let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).expect("Unable to compute left");
             let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).expect("Unable to compute top");
-            //TODO: implement edge smoothing
             for y in range(top, min(top + height, grid.height())) {
                 for x in range(left, min(left + width, grid.width())) {
-                    grid.inc(x,y, ValueType::one());
+                    let cornercase: bool =  (width >= ScaleType::from_u8(3).unwrap()  && (x == left || x == left + width - ScaleType::one()))
+                       && (height >= ScaleType::from_u8(3).unwrap() && (y == top || y == top + height - ScaleType::one()));
+                    if !cornercase {
+                        grid.inc(x,y, ValueType::one());
+                    }
                 }
             }
         }
