@@ -8,7 +8,7 @@ use rand_pcg::Pcg32;
 use clap::{App,Arg};
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
 use std::ops::Index;
-use std::cmp::{min,max};
+use std::cmp::min;
 use ansi_term::Colour::{White,RGB};
 
 
@@ -39,6 +39,10 @@ pub struct HeightGridProperties {
     pub iterations: usize,
 }
 
+pub struct RoomGridProperties {
+    pub rooms: usize,
+}
+
 trait PipeGrid<ScaleType, ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
     ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
@@ -58,6 +62,14 @@ trait HeightGrid<ScaleType, ValueType> where
     fn rendercell(&self, x: ScaleType, y: ScaleType, min: ValueType, max: ValueType) -> String;
 }
 
+trait RoomGrid<ScaleType, ValueType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
+
+    fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: RoomGridProperties) -> Grid<ScaleType,ValueType>;
+    fn render(&self) -> String;
+    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String;
+}
 
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
@@ -174,6 +186,29 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         let disty: f64 = (y2 - y).abs();
         let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
         distance
+    }
+
+
+    ///Computes the distance between two boxes, the distance is the shortest distance between a
+    ///corner of box A and a corner of box B
+    pub fn boxdistance(&self, left: ScaleType, top: ScaleType, width: ScaleType, height: ScaleType, left2: ScaleType, top2: ScaleType, width2: ScaleType, height2: ScaleType) -> f64 {
+        let mut d: f64 = self.distance(left,top,left2+width2,top2);
+        d = fmin(d, self.distance(left,top,left2+width2,top2+height2) );
+        d = fmin(d, self.distance(left,top,left2,top2+height2) );
+
+        d = fmin(d, self.distance(left+width,top,left2,top2) );
+        d = fmin(d, self.distance(left+width,top,left2,top2+height2) );
+        d = fmin(d, self.distance(left+width,top,left2+width2,top2+height2) );
+
+        d = fmin(d, self.distance(left+width,top+height,left2,top2) );
+        d = fmin(d, self.distance(left+width,top+height,left2,top2+height2) );
+        d = fmin(d, self.distance(left+width,top+height,left2+width2,top2) );
+
+        d = fmin(d, self.distance(left,top+height,left2,top2) );
+        d = fmin(d, self.distance(left,top+height,left2+width,top2+height2) );
+        d = fmin(d, self.distance(left,top+height,left2+width2,top2) );
+
+        d
     }
 
     pub fn randompathto(&mut self, rng: &mut Pcg32, x: ScaleType, y: ScaleType, to_x: ScaleType, to_y: ScaleType, height: ValueType) {
@@ -449,6 +484,90 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
 }
 
 
+impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
+
+    fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: RoomGridProperties) -> Grid<ScaleType,ValueType> {
+        let mut rng = Pcg32::seed_from_u64(seed);
+        let mut grid: Grid<ScaleType,ValueType> = Grid::new(width,height);
+        let mut rooms: Vec<(ScaleType,ScaleType,ScaleType,ScaleType)> = Vec::new(); //left,top,width,height
+        let mut tries = 0;
+        while rooms.len() < properties.rooms && tries < 100 { //we give adding rooms when we fail after 100 tries
+            let width: ScaleType = ScaleType::from_usize(rng.gen_range(4,grid.width_as_usize() / 4)).expect("Unable to compute width");
+            let height: ScaleType = ScaleType::from_usize(rng.gen_range(4,grid.height_as_usize() / 4)).expect("Unable to compute height");
+            let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).expect("Unable to compute left");
+            let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).expect("Unable to compute top");
+
+            //the room may not overlap with others
+            let mut overlaps = false;
+            for (left2,top2,width2,height2) in rooms.iter() {
+                if left + width >= *left2 && left <= *left2 + *width2 &&
+                    top + height >= *top2 && top <= *top2 + *height2 {
+                        overlaps = true;
+                        break;
+                }
+            }
+            if !overlaps {
+                rooms.push((left,top,width,height));
+                for y in range(top, min(top + height, grid.height())) {
+                    for x in range(left, min(left + width, grid.width())) {
+                        grid.inc(x,y, ValueType::one());
+                    }
+                }
+                tries = 0;
+            } else {
+                tries += 1;
+            }
+        }
+
+        //create corridors
+        let mut isolatedrooms = rooms.clone();
+        while !isolatedrooms.is_empty() {
+            if let Some((left,top,width,height)) = isolatedrooms.pop() {
+                //find the closest other room
+                let mut mindistance: Option<f64> = None;
+                let mut closest: Option<usize> = None;
+                for (i, (left2, top2, width2, height2)) in isolatedrooms.iter().enumerate() {
+                    let distance: f64 = grid.boxdistance(left,top,width,height,*left2,*top2,*width2,*height2);
+                    if mindistance.is_none() || distance < mindistance.unwrap() {
+                        mindistance = Some(distance);
+                        closest = Some(i);
+                    }
+                }
+            }
+        }
+        grid
+    }
+
+    fn render(&self) -> String {
+        let mut output: String = String::new();
+        for y in range(ScaleType::zero(), self.height()) {
+            for x in range(ScaleType::zero(), self.width()) {
+                output += RoomGrid::rendercell(self, x,y).as_str();
+            }
+            output.push('\n');
+        }
+        output
+    }
+
+    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String {
+        if self[(x,y)] != ValueType::zero() {
+            "█".to_string()
+        } else {
+            " ".to_string()
+        }
+    }
+}
+
+///Implementing my own min() function because cmp::min() doesn't to floats
+fn fmin(x: f64, y: f64) -> f64 {
+    if x < y {
+        x
+    } else {
+        y
+    }
+}
 
 
 fn main() {
@@ -502,6 +621,12 @@ fn main() {
              .short("i")
              .default_value("90")
         )
+        .arg(Arg::with_name("rooms")
+             .help("Rooms (for room map)")
+             .long("rooms")
+             .short("R")
+             .default_value("6")
+        )
         .arg(Arg::with_name("type")
              .help("type")
              .long("type")
@@ -538,6 +663,12 @@ fn main() {
                 iterations: argmatches.value_of("iterations").unwrap().parse::<usize>().unwrap() as usize,
             });
             println!("{}", HeightGrid::render(&grid));
+        },
+        "rooms" => {
+            let grid: Grid<u16,u8> = <Grid<u16,u8> as RoomGrid<u16,u8>>::generate(width as u16, height as u16, seed, RoomGridProperties {
+                rooms: argmatches.value_of("rooms").unwrap().parse::<usize>().unwrap() as usize,
+            });
+            println!("{}", RoomGrid::render(&grid));
         },
         _ => {
             eprintln!("No such type");
