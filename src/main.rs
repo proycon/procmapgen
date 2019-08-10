@@ -341,12 +341,12 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
     pub fn get_mut(&mut self, point: &Point<ScaleType>) -> Option<&mut ValueType> {
         let index = self.index(point);
-        self.data.get_mut(point)
+        self.data.get_mut(index)
     }
 
     pub fn inc(&mut self, point: &Point<ScaleType>, amount: ValueType) {
         let index = self.index(point);
-        let mut v = self.data.get_mut(point).unwrap();
+        let mut v = self.data.get_mut(index).unwrap();
         //TODO: do overflow checking
         *v = *v + amount;
     }
