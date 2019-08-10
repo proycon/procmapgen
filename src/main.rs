@@ -22,15 +22,14 @@ pub struct Grid<ScaleType,ValueType> {
     size: (ScaleType,ScaleType),
 }
 
+///A Point in an X,Y plane
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub struct Point<ScaleType>(ScaleType,ScaleType);
 
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub struct Box<ScaleType> {
-    pub left: ScaleType,
-    pub top: ScaleType,
-    pub width: ScaleType,
-    pub height: ScaleType,
+pub struct Rectangle<ScaleType> {
+    topleft: Point<ScaleType>,
+    bottomright: Point<ScaleType>,
 }
 
 #[derive(Debug,Clone,Copy)]
@@ -40,6 +39,29 @@ pub enum Direction {
     South,
     West,
 }
+
+trait Distance {
+    fn distance(&self, other: &Self) -> f64;
+}
+
+trait Volume<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    fn area(&self) -> f64 {
+        self.width().to_f64().expect("Conversion problem") * self.height().to_f64().expect("Conversion problem")
+    }
+
+    //Is the bounding box for this volume square?
+    fn is_square(&self) -> bool {
+        self.width() == self.height()
+    }
+
+    fn width(&self) -> ScaleType;
+    fn height(&self) -> ScaleType;
+
+    fn intersects(&self, other: &Self) -> bool;
+}
+
 
 #[derive(Debug,Default)]
 pub struct PipeGridProperties {
@@ -69,7 +91,7 @@ trait PipeGrid<ScaleType, ValueType> where
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: PipeGridProperties) -> Grid<ScaleType,ValueType>;
     fn render(&self) -> String;
-    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String;
+    fn rendercell(&self, point: &Point<ScaleType>) -> String;
 
 }
 
@@ -110,22 +132,33 @@ impl<ScaleType> Point<ScaleType> where
     pub fn new16(x: u16, y: u16) -> Point<ScaleType> { Point(ScaleType::from_u16(x).expect("Out of bounds"), ScaleType::from_u16(y).expect("Out of bounds")) }
     pub fn new8(x: u8, y: u8) -> Point<ScaleType> { Point(ScaleType::from_u8(x).expect("Out of bounds"), ScaleType::from_u8(y).expect("Out of bounds")) }
 
-    ///A simple euclidian distance function
-    pub fn distance(&self, other: &Point<ScaleType>) -> f64 {
-        let x = self.x64();
-        let y = self.y64();
-        let x2 = other.x64();
-        let y2 = other.y64();
-        let distx: f64 = (x2 as f64 - x as f64).abs();
-        let disty: f64 = (y2 as f64 - y as f64).abs();
-        let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
-        distance
+    //Generate a random point within the specified rectangular bound
+    pub fn random(rng: &mut Pcg32, bounds: &Rectangle<ScaleType>) -> Point<ScaleType> {
+        Point::new64(
+                rng.gen_range(bounds.topleft.xS(),bounds.bottomright.xS() + 1) as u64,
+                rng.gen_range(bounds.topleft.yS(),bounds.bottomright.yS() + 1) as u64
+        )
     }
+
 
     pub fn x(&self) -> ScaleType { self.0 }
     pub fn y(&self) -> ScaleType { self.1 }
 
+    pub fn rectangle(&self, width: ScaleType, height: ScaleType) -> Rectangle<ScaleType> {
+        Rectangle::new_dims(self.x(), self.y(), width, height)
+    }
+
+    pub fn square(&self, size: ScaleType) -> Rectangle<ScaleType> {
+        Rectangle::new_dims(self.x(), self.y(), size, size)
+    }
+
+    pub fn square1(&self) -> Rectangle<ScaleType> {
+        Rectangle::new_dims(self.x(), self.y(), ScaleType::one(), ScaleType::one())
+    }
+
     //conversion
+    pub fn xS(&self) -> usize { self.0.to_usize().expect("Out of bounds") }
+    pub fn yS(&self) -> usize { self.1.to_usize().expect("Out of bounds") }
     pub fn x64(&self) -> u64 { self.0.to_u64().expect("Out of bounds") }
     pub fn y64(&self) -> u64 { self.1.to_u64().expect("Out of bounds") }
     pub fn x32(&self) -> u32 { self.0.to_u32().expect("Out of bounds") }
@@ -175,6 +208,21 @@ impl<ScaleType> Point<ScaleType> where
 
 }
 
+impl<ScaleType> Distance for Point<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    ///A simple euclidian distance function
+    fn distance(&self, other: &Point<ScaleType>) -> f64 {
+        let x = self.x64();
+        let y = self.y64();
+        let x2 = other.x64();
+        let y2 = other.y64();
+        let distx: f64 = (x2 as f64 - x as f64).abs();
+        let disty: f64 = (y2 as f64 - y as f64).abs();
+        let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
+        distance
+    }
+}
 
 impl<ScaleType> fmt::Display for Point<ScaleType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
@@ -185,6 +233,41 @@ impl<ScaleType> fmt::Display for Point<ScaleType> where
 }
 
 
+
+///A rectangle in a 2D euclidian plane
+impl<ScaleType> Rectangle<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    pub fn new(topleft: &Point<ScaleType>, bottomright: &Point<ScaleType>) -> Rectangle<ScaleType> {
+        Rectangle {
+            topleft: topleft.clone(),
+            bottomright: bottomright.clone()
+        }
+    }
+
+    pub fn new_dims(x: ScaleType, y: ScaleType, width: ScaleType, height: ScaleType) -> Rectangle<ScaleType> {
+        Rectangle {
+            topleft: Point(x,y),
+            bottomright: Point(x+width-ScaleType::one(),y+height-ScaleType::one())
+        }
+    }
+}
+
+impl<ScaleType> Volume<ScaleType> for Rectangle<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    fn width(&self) -> ScaleType {
+        self.bottomright.x() - self.topleft.x() + ScaleType::one()
+    }
+
+    fn height(&self) -> ScaleType {
+        self.bottomright.y() - self.topleft.y() + ScaleType::one()
+    }
+
+    fn intersects(&self, other: &Self) -> bool {
+        false
+    }
+}
 
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
@@ -213,6 +296,10 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
     pub fn height(&self) -> ScaleType {
         self.size.1
+    }
+
+    pub fn rectangle(&self) -> Rectangle<ScaleType> {
+        Rectangle::new_dims(ScaleType::zero(), ScaleType::zero(), self.width(), self.height())
     }
 
     pub fn width_as_usize(&self) -> usize {
@@ -377,26 +464,25 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
         let mut rng = Pcg32::seed_from_u64(seed);
         let mut grid: Grid<ScaleType,ValueType> = Grid::new(width, height);
 
-        let mut backboneseeds: Vec<(ScaleType,ScaleType)> = Vec::new();
+        let mut backboneseeds: Vec<Point<ScaleType>> = Vec::new();
         //add initial backbone nodes
         for _ in 0..properties.backboneseeds {
-            let x: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).unwrap();
-            let y: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).unwrap();
-            grid.set(x,y, ValueType::one());
-            backboneseeds.push((x,y));
+            let point = Point::random(&mut rng, &grid.rectangle());
+            grid.set(&point, ValueType::one());
+            backboneseeds.push(point);
         }
 
         let mut processed: Vec<usize> = Vec::new();
         //connect each backnode node to the nearest other
-        for (i, (x,y)) in backboneseeds.iter().enumerate() {
+        for (i, point) in backboneseeds.iter().enumerate() {
             processed.push(i);
 
             //find the nearest unconnected other
             let mut mindistance: Option<f64> = None;
             let mut closest: Option<usize> = None;
-            for (j, (x2,y2)) in backboneseeds.iter().enumerate() {
+            for (j, point2) in backboneseeds.iter().enumerate() {
                 if !processed.contains(&j) {
-                    let distance =  grid.distance(*x,*y,*x2,*y2);
+                    let distance =  point.distance(point2);
                     if mindistance.is_none() || distance < mindistance.unwrap() {
                         mindistance = Some(distance);
                         closest = Some(j);
@@ -406,8 +492,8 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
 
             //draw a random path
             if let Some(closest) = closest {
-                let (to_x,to_y) = backboneseeds[closest];
-                grid.randompathto(&mut rng, *x, *y, to_x, to_y, ValueType::from_u8(2).unwrap());
+                let point2 = backboneseeds[closest];
+                grid.randompathto(&mut rng, point, &point2, ValueType::from_u8(2).unwrap());
             }
         }
 
@@ -416,30 +502,30 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
             let mut regularseeds = 0;
             let height: ValueType = ValueType::from_usize(iternr).expect("Conversion error") + ValueType::from_u8(3).unwrap();
             while regularseeds < *regularseedgoal {
-                let x: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).unwrap();
-                let y: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).unwrap();
-                if grid[(x,y)] == ValueType::zero() {
+                let point = Point::random(&mut rng, &grid.rectangle());
+                if grid[&point] == ValueType::zero() {
                     regularseeds += 1;
-                    grid.set(x,y,height);
+                    grid.set(&point,height);
                     //find the closest backbone
                     let mut mindistance: Option<f64> = None;
-                    let mut closest: Option<(ScaleType,ScaleType)> = None;
+                    let mut closest: Option<Point<ScaleType>> = None;
                     for y2 in range(ScaleType::zero(), grid.height()) {
                         for x2 in range(ScaleType::zero(), grid.width()) {
-                            let v = grid[(x2,y2)];
+                            let point2 = Point(x2,y2);
+                            let v = grid[&point2];
                             if v > ValueType::zero() && v < height {
-                                let distance: f64 = grid.distance(x,y,x2,y2);
+                                let distance: f64 = point.distance(&point2);
                                 if mindistance.is_none() || distance < mindistance.unwrap() {
                                     mindistance = Some(distance);
-                                    closest = Some((x2,y2));
+                                    closest = Some(point2);
                                 }
                             }
                         }
                     }
                     //
                     //draw a random path to the closest backbone
-                    if let Some((to_x,to_y)) = closest {
-                        grid.randompathto(&mut rng, x, y, to_x, to_y, height+ValueType::one());
+                    if let Some(point2) = closest {
+                        grid.randompathto(&mut rng, &point, &point2, height+ValueType::one());
                     }
                 }
             }
@@ -447,36 +533,36 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
 
         if properties.interconnect {
             //prune dead ends by creating more interconnections
-            let mut deadends: Vec<(ScaleType,ScaleType)> = Vec::new();
-            let mut processed: Vec<usize> = Vec::new();
+            let mut deadends: Vec<Point<ScaleType>> = Vec::new();
+            let mut processed: Vec<Point<ScaleType>> = Vec::new();
             //find all dead ends
             for y in range(ScaleType::zero(), grid.height()) {
                 for x in range(ScaleType::zero(), grid.width()) {
                    //a dead end has only one neighbour
-                   if grid[(x,y)] > ValueType::from_u8(2).unwrap() && grid.countneighbours(x, y) == 1 {
-                       deadends.push((x,y));
+                   let point = Point(x,y);
+                   if grid[&point] > ValueType::from_u8(2).unwrap() && grid.countneighbours(&point) == 1 {
+                       deadends.push(point);
                    }
                 }
             }
 
-            for (i, (x,y)) in deadends.iter().enumerate() {
-              if !processed.contains(&i) {
+            for point in deadends.iter() {
+              if !processed.contains(point) {
                 //we find the closest other dead end (or former dead end)
                 let mut mindistance: Option<f64> = None;
-                let mut closest: Option<usize> = None;
-                for (j, (x2,y2)) in deadends.iter().enumerate() {
-                    if i != j {
-                        let distance: f64 = grid.distance(*x,*y,*x2,*y2);
+                let mut closest: Option<Point<ScaleType>> = None;
+                for point2 in deadends.iter() {
+                    if point != point2 {
+                        let distance: f64 = point.distance(&point2);
                         if mindistance.is_none() || distance < mindistance.unwrap() {
                             mindistance = Some(distance);
-                            closest = Some(j);
+                            closest = Some(point2.clone());
                         }
                     }
                 }
                 //draw a random path to the closest (former) dead end
                 if let Some(closest) = closest {
-                    let (to_x,to_y) = deadends[closest];
-                    grid.randompathto(&mut rng, *x, *y, to_x, to_y, ValueType::from_u8(99).unwrap());
+                    grid.randompathto(&mut rng, point, &closest, ValueType::from_u8(99).unwrap());
                     processed.push(closest);
                 }
               }
@@ -489,6 +575,7 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
         let mut output: String = String::new();
         for y in range(ScaleType::zero(), self.height()) {
             for x in range(ScaleType::zero(), self.width()) {
+                let point = Point(x,y);
                 output += PipeGrid::rendercell(self, x,y).as_str();
             }
             output.push('\n');
@@ -496,13 +583,13 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
         output
     }
 
-    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String {
-        let v = self[(x,y)];
+    fn rendercell(&self, point: &Point<ScaleType>) -> String {
+        let v = self[point];
         let chr: char = if v == ValueType::zero() {
             ' '
         } else {
-           let (hasnorth, haseast, hassouth, haswest) = self.hasneighbours(x, y);
-           let isbackbone = self[(x,y)] <= ValueType::from_u8(2).unwrap();
+           let (hasnorth, haseast, hassouth, haswest) = self.hasneighbours(point);
+           let isbackbone = v <= ValueType::from_u8(2).unwrap();
            match (hasnorth, haseast, hassouth, haswest, isbackbone) {
                (true,true,true,true, false) => '┼',
                (true,true,true,true, true) => '╋',
