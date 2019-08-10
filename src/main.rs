@@ -11,6 +11,7 @@ use std::ops::Index;
 use std::cmp::{min,PartialEq,Eq};
 use ansi_term::Colour::{White,RGB};
 use std::fmt;
+use std::iter::Iterator;
 
 
 ///The basic grid type
@@ -22,6 +23,13 @@ pub struct Grid<ScaleType,ValueType> {
     size: (ScaleType,ScaleType),
 }
 
+///An iterator over all points and (references to) values in the grid
+pub struct GridIterator<'a, ScaleType, ValueType: 'a> {
+    grid: &'a Grid<ScaleType, ValueType>,
+    current: RectIterator<ScaleType>,
+}
+
+
 ///A Point in an X,Y plane
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub struct Point<ScaleType>(ScaleType,ScaleType);
@@ -30,6 +38,12 @@ pub struct Point<ScaleType>(ScaleType,ScaleType);
 pub struct Rectangle<ScaleType> {
     topleft: Point<ScaleType>,
     bottomright: Point<ScaleType>,
+}
+
+///An iterator over all points in the rectangle
+pub struct RectIterator<ScaleType> {
+    rectangle: Rectangle<ScaleType>,
+    current: Option<Point<ScaleType>>, //will be None at instantiation
 }
 
 #[derive(Debug,Clone,Copy)]
@@ -101,7 +115,7 @@ trait HeightGrid<ScaleType, ValueType> where
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: HeightGridProperties) -> Grid<ScaleType,ValueType>;
     fn render(&self) -> String;
-    fn rendercell(&self, x: ScaleType, y: ScaleType, min: ValueType, max: ValueType) -> String;
+    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType) -> String;
 }
 
 trait RoomGrid<ScaleType, ValueType> where
@@ -110,7 +124,7 @@ trait RoomGrid<ScaleType, ValueType> where
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: RoomGridProperties) -> Grid<ScaleType,ValueType>;
     fn render(&self) -> String;
-    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String;
+    fn rendercell(&self, point: &Point<ScaleType>) -> String;
 }
 
 
@@ -245,10 +259,46 @@ impl<ScaleType> Rectangle<ScaleType> where
         }
     }
 
+    pub fn topright(&self) -> Point<ScaleType> {
+        Point(self.bottomright.x(), self.topleft.y())
+    }
+
+    pub fn bottomleft(&self) -> Point<ScaleType> {
+        Point(self.topleft.x(), self.bottomright.y())
+    }
+
     pub fn new_dims(x: ScaleType, y: ScaleType, width: ScaleType, height: ScaleType) -> Rectangle<ScaleType> {
         Rectangle {
             topleft: Point(x,y),
             bottomright: Point(x+width-ScaleType::one(),y+height-ScaleType::one())
+        }
+    }
+    //
+    ///Generate a random rectangle within the specified rectangular bound
+    pub fn random(rng: &mut Pcg32, bounds: &Rectangle<ScaleType>, minwidth: Option<ScaleType>, maxwidth: Option<ScaleType>, minheight: Option<ScaleType>, maxheight: Option<ScaleType>) -> Rectangle<ScaleType> {
+        let minwidth = minwidth.unwrap_or(ScaleType::one()).to_usize().unwrap();
+        let maxwidth = maxwidth.unwrap_or(bounds.width()).to_usize().unwrap();
+        let minheight = minheight.unwrap_or(ScaleType::one()).to_usize().unwrap();
+        let maxheight = maxheight.unwrap_or(bounds.height()).to_usize().unwrap();
+        let topleft = Point::new64(
+                rng.gen_range(bounds.topleft.xS(),bounds.bottomright.xS() + 1 - minwidth) as u64,
+                rng.gen_range(bounds.topleft.yS(),bounds.bottomright.yS() + 1 - minheight) as u64
+        );
+        let bottomright = Point::new64(
+                rng.gen_range(topleft.xS() + minwidth, min(topleft.xS() + maxwidth, bounds.bottomright.xS() + 1)) as u64,
+                rng.gen_range(topleft.yS() + minheight, min(topleft.yS() + minwidth,  bounds.bottomright.yS() + 1) )as u64
+        );
+        Rectangle {
+            topleft: topleft,
+            bottomright: bottomright,
+        }
+    }
+
+    ///Iterate over all points in the rectangle
+    pub fn iter(&self) -> RectIterator<ScaleType> {
+        RectIterator {
+            rectangle: self.clone(),
+            current: None,
         }
     }
 }
@@ -268,6 +318,33 @@ impl<ScaleType> Volume<ScaleType> for Rectangle<ScaleType> where
         false
     }
 }
+
+impl<ScaleType> Distance for Rectangle<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    ///Computes the distance between two boxes, the distance is the shortest distance between a
+    ///corner of box A and a corner of box B
+    fn distance(&self, other: &Self) -> f64 {
+        let mut d: f64 = self.topleft.distance(&other.topright());
+        d = fmin(d, self.topleft.distance(&other.bottomright));
+        d = fmin(d, self.topleft.distance(&other.bottomleft() ));
+
+        d = fmin(d, self.topright().distance(&other.topleft ));
+        d = fmin(d, self.topright().distance(&other.bottomright ) );
+        d = fmin(d, self.topright().distance(&other.bottomleft() ) );
+
+        d = fmin(d, self.bottomright.distance(&other.topleft) );
+        d = fmin(d, self.bottomright.distance(&other.topright() ));
+        d = fmin(d, self.bottomright.distance(&other.bottomleft() ));
+
+        d = fmin(d, self.bottomleft().distance(&other.topleft) );
+        d = fmin(d, self.bottomleft().distance(&other.bottomright ));
+        d = fmin(d, self.bottomleft().distance(&other.topright() ) );
+
+        d
+    }
+}
+
 
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
@@ -310,6 +387,9 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         self.size.1.to_usize().unwrap()
     }
 
+    pub fn iter(&self) -> GridIterator<ScaleType, ValueType> {
+        GridIterator { grid: &self, current: self.rectangle().iter() }
+    }
 
     pub fn max(&self) -> ValueType {
         let mut largest: Option<ValueType> = None;
@@ -387,27 +467,6 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
 
 
-    ///Computes the distance between two boxes, the distance is the shortest distance between a
-    ///corner of box A and a corner of box B
-    pub fn boxdistance(&self, left: ScaleType, top: ScaleType, width: ScaleType, height: ScaleType, left2: ScaleType, top2: ScaleType, width2: ScaleType, height2: ScaleType) -> f64 {
-        let mut d: f64 = self.distance(left,top,left2+width2,top2);
-        d = fmin(d, self.distance(left,top,left2+width2,top2+height2) );
-        d = fmin(d, self.distance(left,top,left2,top2+height2) );
-
-        d = fmin(d, self.distance(left+width,top,left2,top2) );
-        d = fmin(d, self.distance(left+width,top,left2,top2+height2) );
-        d = fmin(d, self.distance(left+width,top,left2+width2,top2+height2) );
-
-        d = fmin(d, self.distance(left+width,top+height,left2,top2) );
-        d = fmin(d, self.distance(left+width,top+height,left2,top2+height2) );
-        d = fmin(d, self.distance(left+width,top+height,left2+width2,top2) );
-
-        d = fmin(d, self.distance(left,top+height,left2,top2) );
-        d = fmin(d, self.distance(left,top+height,left2+width,top2+height2) );
-        d = fmin(d, self.distance(left,top+height,left2+width2,top2) );
-
-        d
-    }
 
     pub fn randompathto(&mut self, rng: &mut Pcg32, from: &Point<ScaleType>, to: &Point<ScaleType>, value: ValueType) {
         let mut retry = true;
@@ -441,6 +500,7 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
 }
 
+
 ///Implementing the index ([]) operator for Grid
 impl<ScaleType,ValueType> Index<&Point<ScaleType>> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
@@ -452,6 +512,53 @@ impl<ScaleType,ValueType> Index<&Point<ScaleType>> for Grid<ScaleType,ValueType>
             self.get(point).expect("Out of bounds")
         }
 
+}
+
+impl<ScaleType> Iterator for RectIterator<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    type Item = Point<ScaleType>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(current) = self.current {
+            current = current.east(None).expect("Iterator out of bounds");
+            if current.x() > self.rectangle.bottomright.x() {
+                //next row
+                current.set( self.rectangle.topleft.x(), current.y() + ScaleType::one());
+                if current.y() > self.rectangle.bottomright.y() {
+                    //out of bounds, stop condition
+                    self.current = None
+                } else {
+                    self.current = Some(current);
+                }
+            } else {
+                self.current = Some(current);
+            }
+        } else {
+            self.current = Some(self.rectangle.topleft.clone());
+        };
+        self.current
+    }
+}
+
+
+impl<'a, ScaleType, ValueType> Iterator for GridIterator<'a, ScaleType,ValueType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
+
+    type Item = (Point<ScaleType>,&'a ValueType);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(point) = self.current.next() {
+            if let Some(value) = self.grid.get(&point) {
+                Some( (point, value) )
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
 }
 
 
@@ -509,16 +616,12 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                     //find the closest backbone
                     let mut mindistance: Option<f64> = None;
                     let mut closest: Option<Point<ScaleType>> = None;
-                    for y2 in range(ScaleType::zero(), grid.height()) {
-                        for x2 in range(ScaleType::zero(), grid.width()) {
-                            let point2 = Point(x2,y2);
-                            let v = grid[&point2];
-                            if v > ValueType::zero() && v < height {
-                                let distance: f64 = point.distance(&point2);
-                                if mindistance.is_none() || distance < mindistance.unwrap() {
-                                    mindistance = Some(distance);
-                                    closest = Some(point2);
-                                }
+                    for (point2, v) in grid.iter() {
+                        if *v > ValueType::zero() && *v < height {
+                            let distance: f64 = point.distance(&point2);
+                            if mindistance.is_none() || distance < mindistance.unwrap() {
+                                mindistance = Some(distance);
+                                closest = Some(point2);
                             }
                         }
                     }
@@ -536,14 +639,10 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
             let mut deadends: Vec<Point<ScaleType>> = Vec::new();
             let mut processed: Vec<Point<ScaleType>> = Vec::new();
             //find all dead ends
-            for y in range(ScaleType::zero(), grid.height()) {
-                for x in range(ScaleType::zero(), grid.width()) {
-                   //a dead end has only one neighbour
-                   let point = Point(x,y);
-                   if grid[&point] > ValueType::from_u8(2).unwrap() && grid.countneighbours(&point) == 1 {
-                       deadends.push(point);
-                   }
-                }
+            for (point,value) in grid.iter() {
+               if *value > ValueType::from_u8(2).unwrap() && grid.countneighbours(&point) == 1 {
+                   deadends.push(point);
+               }
             }
 
             for point in deadends.iter() {
@@ -573,12 +672,11 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
 
     fn render(&self) -> String {
         let mut output: String = String::new();
-        for y in range(ScaleType::zero(), self.height()) {
-            for x in range(ScaleType::zero(), self.width()) {
-                let point = Point(x,y);
-                output += PipeGrid::rendercell(self, x,y).as_str();
+        for (i, point) in self.rectangle().iter().enumerate() {
+            if point.x() == ScaleType::zero() && i > 0 {
+                output.push('\n');
             }
-            output.push('\n');
+            output += PipeGrid::rendercell(self, &point).as_str();
         }
         output
     }
@@ -634,22 +732,21 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
     ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
 
-    ///Generates the network (a planar graph), with a backbone
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: HeightGridProperties) -> Grid<ScaleType,ValueType> {
         let mut rng = Pcg32::seed_from_u64(seed);
         let mut grid: Grid<ScaleType,ValueType> = Grid::new(width,height);
         for i in 0..properties.iterations {
-            let width: ScaleType = ScaleType::from_usize(rng.gen_range(1,grid.width_as_usize() / 5)).expect("Unable to compute width");
-            let height: ScaleType = ScaleType::from_usize(rng.gen_range(1,grid.height_as_usize() / 5)).expect("Unable to compute height");
-            let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).expect("Unable to compute left");
-            let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).expect("Unable to compute top");
-            for y in range(top, min(top + height, grid.height())) {
-                for x in range(left, min(left + width, grid.width())) {
-                    let cornercase: bool =  (width >= ScaleType::from_u8(3).unwrap()  && (x == left || x == left + width - ScaleType::one()))
-                       && (height >= ScaleType::from_u8(3).unwrap() && (y == top || y == top + height - ScaleType::one()));
-                    if !cornercase {
-                        grid.inc(x,y, ValueType::one());
-                    }
+            let rect: Rectangle<ScaleType> = Rectangle::random(&mut rng, &grid.rectangle(),
+                               Some(ScaleType::one()),  //minwidth
+                               Some(ScaleType::from_usize(grid.width_as_usize() / 5).expect("conversion error")), //maxwidth
+                               Some(ScaleType::one()),  //minheight
+                               Some(ScaleType::from_usize(grid.height_as_usize() / 5).expect("conversion error")), //maxheight
+            );
+            for point in rect.iter() {
+                let cornercase: bool =  (rect.width() >= ScaleType::from_u8(3).unwrap()  && (point.x() == rect.topleft.x() || point.x() == rect.topright().x()))
+                   && (point.y() >= ScaleType::from_u8(3).unwrap() && (point.y() == rect.topleft.y() || point.y() == rect.bottomright.y()));
+                if !cornercase {
+                    grid.inc(&point, ValueType::one());
                 }
             }
         }
@@ -660,17 +757,17 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
         let mut output: String = String::new();
         let min = self.min();
         let max = self.max();
-        for y in range(ScaleType::zero(), self.height()) {
-            for x in range(ScaleType::zero(), self.width()) {
-                output += HeightGrid::rendercell(self, x,y, min, max).as_str();
+        for (i, point) in self.rectangle().iter().enumerate() {
+            if point.x() == ScaleType::zero() && i > 0 {
+                output.push('\n');
             }
-            output.push('\n');
+            output += HeightGrid::rendercell(self, &point, min, max).as_str();
         }
         output
     }
 
-    fn rendercell(&self, x: ScaleType, y: ScaleType, min: ValueType, max: ValueType) -> String {
-        let v = self[(x,y)].to_usize().unwrap();
+    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType) -> String {
+        let v = self[point].to_usize().unwrap();
         let min  = min.to_usize().unwrap();
         let max  = max.to_usize().unwrap();
         let colour: usize = (v - min) * (255/(max-min));
