@@ -8,8 +8,9 @@ use rand_pcg::Pcg32;
 use clap::{App,Arg};
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
 use std::ops::Index;
-use std::cmp::min;
+use std::cmp::{min,PartialEq,Eq};
 use ansi_term::Colour::{White,RGB};
+use std::fmt;
 
 
 ///The basic grid type
@@ -19,6 +20,25 @@ pub struct Grid<ScaleType,ValueType> {
 
     ///The dimensions of the grid
     size: (ScaleType,ScaleType),
+}
+
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub struct Point<ScaleType>(ScaleType,ScaleType);
+
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub struct Box<ScaleType> {
+    pub left: ScaleType,
+    pub top: ScaleType,
+    pub width: ScaleType,
+    pub height: ScaleType,
+}
+
+#[derive(Debug,Clone,Copy)]
+pub enum Direction {
+    North,
+    East,
+    South,
+    West,
 }
 
 #[derive(Debug,Default)]
@@ -70,6 +90,101 @@ trait RoomGrid<ScaleType, ValueType> where
     fn render(&self) -> String;
     fn rendercell(&self, x: ScaleType, y: ScaleType) -> String;
 }
+
+
+
+
+
+
+///A point in a 2D euclidian plane
+impl<ScaleType> Point<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    pub fn new(x: ScaleType, y: ScaleType) -> Point<ScaleType> {
+        Point(x,y)
+    }
+
+    //conversion
+    pub fn new64(x: u64, y: u64) -> Point<ScaleType> { Point(ScaleType::from_u64(x).expect("Out of bounds"), ScaleType::from_u64(y).expect("Out of bounds")) }
+    pub fn new32(x: u32, y: u32) -> Point<ScaleType> { Point(ScaleType::from_u32(x).expect("Out of bounds"), ScaleType::from_u32(y).expect("Out of bounds")) }
+    pub fn new16(x: u16, y: u16) -> Point<ScaleType> { Point(ScaleType::from_u16(x).expect("Out of bounds"), ScaleType::from_u16(y).expect("Out of bounds")) }
+    pub fn new8(x: u8, y: u8) -> Point<ScaleType> { Point(ScaleType::from_u8(x).expect("Out of bounds"), ScaleType::from_u8(y).expect("Out of bounds")) }
+
+    ///A simple euclidian distance function
+    pub fn distance(&self, other: &Point<ScaleType>) -> f64 {
+        let x = self.x64();
+        let y = self.y64();
+        let x2 = other.x64();
+        let y2 = other.y64();
+        let distx: f64 = (x2 as f64 - x as f64).abs();
+        let disty: f64 = (y2 as f64 - y as f64).abs();
+        let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
+        distance
+    }
+
+    pub fn x(&self) -> ScaleType { self.0 }
+    pub fn y(&self) -> ScaleType { self.1 }
+
+    //conversion
+    pub fn x64(&self) -> u64 { self.0.to_u64().expect("Out of bounds") }
+    pub fn y64(&self) -> u64 { self.1.to_u64().expect("Out of bounds") }
+    pub fn x32(&self) -> u32 { self.0.to_u32().expect("Out of bounds") }
+    pub fn y32(&self) -> u32 { self.1.to_u32().expect("Out of bounds") }
+    pub fn x16(&self) -> u16 { self.0.to_u16().expect("Out of bounds") }
+    pub fn y16(&self) -> u16 { self.1.to_u16().expect("Out of bounds") }
+    pub fn x8(&self) -> u8 { self.0.to_u8().expect("Out of bounds") }
+    pub fn y8(&self) -> u8 { self.1.to_u8().expect("Out of bounds") }
+
+
+    pub fn neighbour(&self, direction: Direction, width: Option<ScaleType>, height: Option<ScaleType>) -> Option<Point<ScaleType>> {
+        match direction {
+            Direction::North => { if self.y() == ScaleType::zero() {
+                                    None
+                                  } else {
+                                    Some(Point(self.x(), self.y() - ScaleType::one()))
+                                  } },
+            Direction::East => { if width.is_some() && self.x() == width.unwrap() - ScaleType::one() {
+                                    None
+                                } else {
+                                    Some(Point(self.x() + ScaleType::one(), self.y() ))
+                                } },
+            Direction::South => { if height.is_some() && self.y() == height.unwrap() - ScaleType::one() {
+                                    None
+                                } else {
+                                    Some(Point(self.x(), self.y() + ScaleType::one()))
+                                } },
+            Direction::West => { if self.x() == ScaleType::zero() {
+                                    None
+                                } else {
+                                    Some(Point(self.x() - ScaleType::one(), self.y()))
+                                } },
+        }
+    }
+
+    //aliases for neighbour
+    pub fn north(&self) -> Option<Point<ScaleType>> { self.neighbour(Direction::North, None, None) }
+    pub fn west(&self) -> Option<Point<ScaleType>> { self.neighbour(Direction::West, None, None) }
+    pub fn south(&self, height: Option<ScaleType>) -> Option<Point<ScaleType>> { self.neighbour(Direction::West, None, height) }
+    pub fn east(&self, width: Option<ScaleType>) -> Option<Point<ScaleType>> { self.neighbour(Direction::East, width, None) }
+
+    pub fn set(&self, x: ScaleType, y: ScaleType) {
+        self.0 = x;
+        self.1 = y;
+    }
+
+
+}
+
+
+impl<ScaleType> fmt::Display for Point<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({},{})", self.x64(), self.y64())
+    }
+}
+
+
 
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
@@ -129,64 +244,60 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         smallest.expect("Grid has no data")
     }
 
-    pub fn index(&self, x: ScaleType, y: ScaleType) -> usize {
-       (y * self.width() + x).to_usize().expect("Unable to cast to usize")
+    pub fn index(&self, point: &Point<ScaleType>) -> usize {
+       (point.y() * self.width() + point.x()).to_usize().expect("Unable to cast to usize")
     }
 
-    pub fn get(&self, x: ScaleType, y: ScaleType) -> Option<&ValueType> {
-        self.data.get(self.index(x,y))
+    pub fn get(&self, point: &Point<ScaleType>) -> Option<&ValueType> {
+        self.data.get(self.index(point))
     }
 
-    pub fn get_mut(&mut self, x: ScaleType, y: ScaleType) -> Option<&mut ValueType> {
-        let index = self.index(x,y);
-        self.data.get_mut(index)
+    pub fn get_mut(&mut self, point: &Point<ScaleType>) -> Option<&mut ValueType> {
+        let index = self.index(point);
+        self.data.get_mut(point)
     }
 
-    pub fn inc(&mut self, x: ScaleType, y: ScaleType, amount: ValueType) {
-        let index = self.index(x,y);
-        let mut v = self.data.get_mut(index).unwrap();
+    pub fn inc(&mut self, point: &Point<ScaleType>, amount: ValueType) {
+        let index = self.index(point);
+        let mut v = self.data.get_mut(point).unwrap();
         //TODO: do overflow checking
         *v = *v + amount;
     }
 
-    pub fn set(&mut self, x: ScaleType, y: ScaleType, value: ValueType) -> bool {
-        if let Some(v) = self.get_mut(x,y) {
+    pub fn set(&mut self, point: &Point<ScaleType>, value: ValueType) -> bool {
+        if let Some(v) = self.get_mut(point) {
             *v = value;
             return true;
         }
         return false;
     }
 
-    pub fn hasneighbours(&self,x: ScaleType, y: ScaleType) -> (bool, bool, bool, bool) {
-       let hasnorth = y > ScaleType::zero() && self[(x,y-ScaleType::one())] > ValueType::zero();
-       let haseast = x < self.width() - ScaleType::one() && self[(x+ScaleType::one(),y)] > ValueType::zero();
-       let hassouth = y < self.height() - ScaleType::one() && self[(x,y+ScaleType::one())] > ValueType::zero();
-       let haswest = x > ScaleType::zero() && self[(x-ScaleType::one(),y)] > ValueType::zero();
-       (hasnorth, haseast, hassouth, haswest)
+    pub fn hasneighbour(&self, point: &Point<ScaleType>, direction: Direction) -> bool {
+        if let Some(neighbour) = point.neighbour(direction, Some(self.width()), Some(self.height())) {
+            self[&neighbour] > ValueType::zero()
+        } else {
+            false
+        }
     }
 
-    pub fn countneighbours(&self, x: ScaleType, y: ScaleType) -> usize {
-       let (hasnorth, haseast, hassouth, haswest) = self.hasneighbours(x, y);
+    pub fn hasneighbours(&self,point: &Point<ScaleType>) -> (bool, bool, bool, bool) {
+       (
+           self.hasneighbour(point, Direction::North),
+           self.hasneighbour(point, Direction::East),
+           self.hasneighbour(point, Direction::South),
+           self.hasneighbour(point, Direction::West),
+       )
+    }
+
+    pub fn countneighbours(&self, point: &Point<ScaleType>) -> usize {
        let mut count = 0;
-       if hasnorth { count += 1 }
-       if haseast { count += 1 }
-       if hassouth { count += 1 }
-       if haswest { count += 1 }
+       if self.hasneighbour(point, Direction::North) { count += 1 };
+       if self.hasneighbour(point, Direction::East) { count += 1 };
+       if self.hasneighbour(point, Direction::South) { count += 1 };
+       if self.hasneighbour(point, Direction::West) { count += 1 };
        count
     }
 
-    ///A simple euclidian distance function
-    pub fn distance(&self, x: ScaleType, y: ScaleType, x2: ScaleType, y2: ScaleType) -> f64 {
-        //self is passed (though unused) just so we don't need type annotations
-        let x = x.to_f64().unwrap();
-        let y = y.to_f64().unwrap();
-        let x2 = x2.to_f64().unwrap();
-        let y2 = y2.to_f64().unwrap();
-        let distx: f64 = (x2 - x).abs();
-        let disty: f64 = (y2 - y).abs();
-        let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
-        distance
-    }
 
 
     ///Computes the distance between two boxes, the distance is the shortest distance between a
@@ -211,20 +322,19 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         d
     }
 
-    pub fn randompathto(&mut self, rng: &mut Pcg32, x: ScaleType, y: ScaleType, to_x: ScaleType, to_y: ScaleType, height: ValueType) {
+    pub fn randompathto(&mut self, rng: &mut Pcg32, from: &Point<ScaleType>, to: &Point<ScaleType>, value: ValueType) {
         let mut retry = true;
         let mut retries = 0;
+        let mut walk = *from; //copy
         while retry {
-            let mut from_x = x;
-            let mut from_y = y;
-            let dx: i32 = if to_x > from_x { 1 } else { -1 };
-            let dy: i32 = if to_y > from_y { 1 } else { -1 };
+            let dx = if to.x() > walk.x() { Direction::East } else { Direction::West };
+            let dy = if to.y() > walk.y() { Direction::South } else { Direction::North };
             let mut iteration = 0;
             retry = false;
-            while (from_x != to_x) || (from_y != to_y) {
-                if (from_x != x) || (from_y != y) {
-                    if self[(from_x,from_y)] == ValueType::zero() {
-                        self.set(from_x,from_y,height);
+            while walk != *to {
+                if walk != *to {
+                    if self[&walk] == ValueType::zero() {
+                        self.set(&walk,value);
                     } else if iteration == 1 && retries < 5 {
                         //first step must be to a node that is still empty, restart:
                         retry = true;
@@ -232,10 +342,10 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
                         break;
                     }
                 }
-                if (from_x != to_x) && ((from_y == to_y) || rng.gen()) {
-                    from_x = ScaleType::from_i32((from_x.to_i32().expect("conversion problem")) + dx).expect("conversion problem");
-                } else if (from_y != to_y) && ((from_x == to_x) || rng.gen()) {
-                    from_y = ScaleType::from_i32((from_y.to_i32().expect("conversion problem")) + dy).expect("conversion problem");
+                if (walk.x() != to.x()) && ((walk.y() == to.y()) || rng.gen()) {
+                    walk = walk.neighbour(dx, Some(self.width()), Some(self.height())).expect("Bumped into boundary, shouldn't happen");
+                } else if (walk.y() != to.y()) && ((walk.x() == to.x()) || rng.gen()) {
+                    walk = walk.neighbour(dy, Some(self.width()), Some(self.height())).expect("Bumped into boundary, shouldn't happen");
                 }
                 iteration += 1;
             }
@@ -245,15 +355,14 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 }
 
 ///Implementing the index ([]) operator for Grid
-impl<ScaleType,ValueType> Index<(ScaleType,ScaleType)> for Grid<ScaleType,ValueType> where
+impl<ScaleType,ValueType> Index<&Point<ScaleType>> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
     ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
 
         type Output = ValueType;
 
-        fn index(&self, index: (ScaleType, ScaleType)) -> &Self::Output {
-            let (x,y) = index;
-            self.get(x,y).expect("Out of bounds")
+        fn index(&self, point: &Point<ScaleType>) -> &Self::Output {
+            self.get(point).expect("Out of bounds")
         }
 
 }
