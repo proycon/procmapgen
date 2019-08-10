@@ -214,7 +214,7 @@ impl<ScaleType> Point<ScaleType> where
     pub fn south(&self, height: Option<ScaleType>) -> Option<Point<ScaleType>> { self.neighbour(Direction::West, None, height) }
     pub fn east(&self, width: Option<ScaleType>) -> Option<Point<ScaleType>> { self.neighbour(Direction::East, width, None) }
 
-    pub fn set(&self, x: ScaleType, y: ScaleType) {
+    pub fn set(&mut self, x: ScaleType, y: ScaleType) {
         self.0 = x;
         self.1 = y;
     }
@@ -267,6 +267,22 @@ impl<ScaleType> Rectangle<ScaleType> where
         Point(self.topleft.x(), self.bottomright.y())
     }
 
+    pub fn left(&self) -> ScaleType {
+        self.topleft.x()
+    }
+
+    pub fn right(&self) -> ScaleType {
+        self.bottomright.x()
+    }
+
+    pub fn top(&self) -> ScaleType {
+        self.topleft.y()
+    }
+
+    pub fn bottom(&self) -> ScaleType {
+        self.bottomright.y()
+    }
+
     pub fn new_dims(x: ScaleType, y: ScaleType, width: ScaleType, height: ScaleType) -> Rectangle<ScaleType> {
         Rectangle {
             topleft: Point(x,y),
@@ -315,7 +331,8 @@ impl<ScaleType> Volume<ScaleType> for Rectangle<ScaleType> where
     }
 
     fn intersects(&self, other: &Self) -> bool {
-        false
+        self.bottomright.x() >= other.topleft.x() && self.topleft.x() <= other.topright().x() &&
+        self.bottomright.y() >= other.topleft.y() && self.topleft.y() <= other.bottomright.y()
     }
 }
 
@@ -520,7 +537,7 @@ impl<ScaleType> Iterator for RectIterator<ScaleType> where
     type Item = Point<ScaleType>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(current) = self.current {
+        if let Some(mut current) = self.current {
             current = current.east(None).expect("Iterator out of bounds");
             if current.x() > self.rectangle.bottomright.x() {
                 //next row
@@ -784,29 +801,28 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: RoomGridProperties) -> Grid<ScaleType,ValueType> {
         let mut rng = Pcg32::seed_from_u64(seed);
         let mut grid: Grid<ScaleType,ValueType> = Grid::new(width,height);
-        let mut rooms: Vec<(ScaleType,ScaleType,ScaleType,ScaleType)> = Vec::new(); //left,top,width,height
+        let mut rooms: Vec<Rectangle<ScaleType>> = Vec::new(); //left,top,width,height
         let mut tries = 0;
         while rooms.len() < properties.rooms && tries < 100 { //we give adding rooms when we fail after 100 tries
-            let width: ScaleType = ScaleType::from_usize(rng.gen_range(4,grid.width_as_usize() / 4)).expect("Unable to compute width");
-            let height: ScaleType = ScaleType::from_usize(rng.gen_range(4,grid.height_as_usize() / 4)).expect("Unable to compute height");
-            let left: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.width_as_usize())).expect("Unable to compute left");
-            let top: ScaleType = ScaleType::from_usize(rng.gen_range(0,grid.height_as_usize())).expect("Unable to compute top");
+            let room: Rectangle<ScaleType> = Rectangle::random(&mut rng, &grid.rectangle(),
+                               Some(ScaleType::from_u8(3).expect("conversion error")),  //minwidth
+                               Some(ScaleType::from_usize(grid.width_as_usize() / 4).expect("conversion error")), //maxwidth
+                               Some(ScaleType::from_u8(3).expect("conversion error")),  //minheight
+                               Some(ScaleType::from_usize(grid.height_as_usize() / 4).expect("conversion error")), //maxheight
+            );
 
             //the room may not overlap with others
             let mut overlaps = false;
-            for (left2,top2,width2,height2) in rooms.iter() {
-                if left + width >= *left2 && left <= *left2 + *width2 &&
-                    top + height >= *top2 && top <= *top2 + *height2 {
-                        overlaps = true;
-                        break;
+            for room2 in rooms.iter() {
+                if room.intersects(room2) {
+                    overlaps = true;
+                    break;
                 }
             }
             if !overlaps {
-                rooms.push((left,top,width,height));
-                for y in range(top, min(top + height, grid.height())) {
-                    for x in range(left, min(left + width, grid.width())) {
-                        grid.inc(x,y, ValueType::one());
-                    }
+                rooms.push(room);
+                for point in room.iter() {
+                    grid.inc(&point, ValueType::one());
                 }
                 tries = 0;
             } else {
@@ -817,12 +833,12 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
         //create corridors
         let mut isolatedrooms = rooms.clone();
         while !isolatedrooms.is_empty() {
-            if let Some((left,top,width,height)) = isolatedrooms.pop() {
+            if let Some(room) = isolatedrooms.pop() {
                 //find the closest other room
                 let mut mindistance: Option<f64> = None;
                 let mut closest: Option<usize> = None;
-                for (i, (left2, top2, width2, height2)) in isolatedrooms.iter().enumerate() {
-                    let distance: f64 = grid.boxdistance(left,top,width,height,*left2,*top2,*width2,*height2);
+                for (i, room2) in isolatedrooms.iter().enumerate() {
+                    let distance: f64 = room.distance(&room2);
                     if mindistance.is_none() || distance < mindistance.unwrap() {
                         mindistance = Some(distance);
                         closest = Some(i);
@@ -830,38 +846,38 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                 }
 
                 if let Some(index) = closest {
-                    let (left2, top2, width2, height2) = isolatedrooms.remove(index);
+                    let room2 = isolatedrooms.remove(index);
                     let mut corridor_h: Option<ScaleType> = None;
                     let mut corridor_v: Option<ScaleType> = None;
                     //can we do a horizontal corridor?
-                    if top <= top2 + height2 && top + height >= top2 {
+                    if room.top() <= room2.bottom() && room.bottom() >= room2.top() {
                         //horizontal corridor
-                        corridor_h = Some(ScaleType::from_usize(rng.gen_range( top2.to_usize().unwrap() , top2.to_usize().unwrap() + height2.to_usize().unwrap()  )).expect("Unable to compute corridor H"));
-                    } else if top2 <= top + height && top2 + height2 >= top {
+                        corridor_h = Some(ScaleType::from_usize(rng.gen_range( room2.top().to_usize().unwrap() , room2.bottom().to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                    } else if room2.top() <= room.bottom() && room2.bottom() >= room.top() {
                         //horizontal corridor
-                        corridor_h = Some(ScaleType::from_usize(rng.gen_range( top.to_usize().unwrap() , top.to_usize().unwrap() + height.to_usize().unwrap()  )).expect("Unable to compute corridor H"));
-                    } else if left <= left2 + width2 && left + width >= left2 {
-                        corridor_v = Some(ScaleType::from_usize(rng.gen_range( left2.to_usize().unwrap() , left2.to_usize().unwrap() + width2.to_usize().unwrap()  )).expect("Unable to compute corridor H"));
-                    } else if left2 <= left + width && left2 + width2 >= left {
-                        corridor_v = Some(ScaleType::from_usize(rng.gen_range( left.to_usize().unwrap() , left.to_usize().unwrap() + width.to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                        corridor_h = Some(ScaleType::from_usize(rng.gen_range( room.top().to_usize().unwrap() , room.bottom().to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                    } else if room.left() <= room2.right() && room.right() >= room2.left() {
+                        corridor_v = Some(ScaleType::from_usize(rng.gen_range( room2.left().to_usize().unwrap() , room2.right().to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                    } else if room2.left() <= room.right() && room2.right() >= room.left() {
+                        corridor_v = Some(ScaleType::from_usize(rng.gen_range( room.left().to_usize().unwrap() , room.right().to_usize().unwrap()  )).expect("Unable to compute corridor H"));
                     }
                     if let Some(corridor_h) = corridor_h {
-                        let (begin_x, end_x) = if left < left2 {
-                            (left + width, left2)
+                        let (begin_x, end_x) = if room.left() < room2.left() {
+                            (room.right(), room2.left())
                         } else {
-                            (left2 + width2, left)
+                            (room2.right(), room.left())
                         };
                         for x in range(begin_x, end_x) {
-                            grid.set(x,corridor_h, ValueType::one());
+                            grid.set(&Point(x,corridor_h), ValueType::one());
                         }
                     } else if let Some(corridor_v) = corridor_v {
-                        let (begin_y, end_y) = if top < top2 {
-                            (top + height, top2)
+                        let (begin_y, end_y) = if room.top() < room2.top() {
+                            (room.bottom(), room2.top())
                         } else {
-                            (top2 + height2, top)
+                            (room2.bottom(), room.top())
                         };
                         for y in range(begin_y, end_y) {
-                            grid.set(corridor_v,y, ValueType::one());
+                            grid.set(&Point(corridor_v,y), ValueType::one());
                         }
                     } else {
                         //TODO: cornered corridors
@@ -874,17 +890,17 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
 
     fn render(&self) -> String {
         let mut output: String = String::new();
-        for y in range(ScaleType::zero(), self.height()) {
-            for x in range(ScaleType::zero(), self.width()) {
-                output += RoomGrid::rendercell(self, x,y).as_str();
+        for (i, point) in self.rectangle().iter().enumerate() {
+            if point.x() == ScaleType::zero() && i > 0 {
+                output.push('\n');
             }
-            output.push('\n');
+            output += RoomGrid::rendercell(self, &point).as_str();
         }
         output
     }
 
-    fn rendercell(&self, x: ScaleType, y: ScaleType) -> String {
-        if self[(x,y)] != ValueType::zero() {
+    fn rendercell(&self, point: &Point<ScaleType>) -> String {
+        if self[&point] != ValueType::zero() {
             "█".to_string()
         } else {
             " ".to_string()
