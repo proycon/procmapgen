@@ -3,7 +3,6 @@ use rand_pcg::Pcg32;
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
 use std::ops::Index;
 use std::cmp::{min,PartialEq,Eq};
-use ansi_term::Colour::{White,RGB};
 use std::fmt;
 use std::iter::Iterator;
 

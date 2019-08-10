@@ -72,12 +72,12 @@ impl<ScaleType> Rectangle<ScaleType> where
         let minheight = minheight.unwrap_or(ScaleType::one()).to_usize().unwrap();
         let maxheight = maxheight.unwrap_or(bounds.height()).to_usize().unwrap();
         let topleft = Point::new64(
-                rng.gen_range(bounds.topleft.xs(),bounds.bottomright.xs() + 1 - minwidth) as u64,
-                rng.gen_range(bounds.topleft.ys(),bounds.bottomright.ys() + 1 - minheight) as u64
+                rng.gen_range(bounds.topleft.xs(), bounds.bottomright.xs() + 1 - minwidth) as u64,
+                rng.gen_range(bounds.topleft.ys(), bounds.bottomright.ys() + 1 - minheight) as u64
         );
         let bottomright = Point::new64(
                 rng.gen_range(topleft.xs() + minwidth, min(topleft.xs() + maxwidth, bounds.bottomright.xs() + 1)) as u64,
-                rng.gen_range(topleft.ys() + minheight, min(topleft.ys() + minwidth,  bounds.bottomright.ys() + 1) )as u64
+                rng.gen_range(topleft.ys() + minheight, min(topleft.ys() + maxheight,  bounds.bottomright.ys() + 1) )as u64
         );
         Rectangle {
             topleft: topleft,
