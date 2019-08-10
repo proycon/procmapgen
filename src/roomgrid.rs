@@ -1,6 +1,6 @@
 use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
-use std::cmp::{min,PartialEq,Eq};
+use std::cmp::{min,max,PartialEq,Eq};
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
 
 use crate::common::{Distance,Direction,Volume};
@@ -79,14 +79,24 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                     //can we do a horizontal corridor?
                     if room.top() <= room2.bottom() && room.bottom() >= room2.top() {
                         //horizontal corridor
-                        corridor_h = Some(ScaleType::from_usize(rng.gen_range( room2.top().to_usize().unwrap() , room2.bottom().to_usize().unwrap()  )).expect("Unable to compute corridor H"));
-                    } else if room2.top() <= room.bottom() && room2.bottom() >= room.top() {
-                        //horizontal corridor
-                        corridor_h = Some(ScaleType::from_usize(rng.gen_range( room.top().to_usize().unwrap() , room.bottom().to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                        let corridor_h_min = max(room.top(), room2.top());
+                        let corridor_h_max = min(room.bottom(), room2.bottom());
+                        //eprintln!("H1: {}-{}", corridor_h_min.to_usize().unwrap(), corridor_h_max.to_usize().unwrap());
+                        corridor_h = if corridor_h_min == corridor_h_max {
+                            Some(corridor_h_min)
+                        } else {
+                            Some(ScaleType::from_usize(rng.gen_range( corridor_h_min.to_usize().unwrap() , corridor_h_max.to_usize().unwrap()  )).expect("Unable to compute corridor H"))
+                        };
                     } else if room.left() <= room2.right() && room.right() >= room2.left() {
-                        corridor_v = Some(ScaleType::from_usize(rng.gen_range( room2.left().to_usize().unwrap() , room2.right().to_usize().unwrap()  )).expect("Unable to compute corridor H"));
-                    } else if room2.left() <= room.right() && room2.right() >= room.left() {
-                        corridor_v = Some(ScaleType::from_usize(rng.gen_range( room.left().to_usize().unwrap() , room.right().to_usize().unwrap()  )).expect("Unable to compute corridor H"));
+                        //vertical corridor
+                        let corridor_v_min = max(room.left(), room2.left());
+                        let corridor_v_max = min(room.right(), room2.right());
+                        //eprintln!("H1: {}-{}", corridor_v_min.to_usize().unwrap(), corridor_v_max.to_usize().unwrap());
+                        corridor_v = if corridor_v_min == corridor_v_max {
+                            Some(corridor_v_min)
+                        } else {
+                            Some(ScaleType::from_usize(rng.gen_range( corridor_v_min.to_usize().unwrap() , corridor_v_max.to_usize().unwrap()  )).expect("Unable to compute corridor H"))
+                        };
                     }
                     if let Some(corridor_h) = corridor_h {
                         let (begin_x, end_x) = if room.left() < room2.left() {
