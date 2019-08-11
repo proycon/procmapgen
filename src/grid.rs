@@ -282,7 +282,7 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         }
     }
 
-    fn findpath(&self, from: &Point<ScaleType>, to: &Point<ScaleType>, costgrid: Option<Grid<ScaleType,u8>>) -> Vec<Point<ScaleType>> {
+    fn findpath(&self, from: &Point<ScaleType>, to: &Point<ScaleType>, costgrid: Option<Grid<ScaleType,u32>>) -> Vec<Point<ScaleType>> {
 
         let mut fringe: BinaryHeap<PathState<ScaleType>> = BinaryHeap::new();
 
@@ -292,7 +292,7 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
         let costgrid = costgrid.unwrap_or(self.map_into(
                 |_point,value| {
-                    if value == 0 { 0 } else { 1 }
+                    if value == 0 { u32::max_value() } else { 1 }
                 }
         ));
 
