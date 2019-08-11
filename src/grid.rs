@@ -33,11 +33,10 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
     pub fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
         //create initial empty 2D grid
-        let mut grid: Vec<ValueType> = Vec::new(); //flattened grid
-        for _ in range(ScaleType::zero(), height) {
-            for _ in range(ScaleType::zero(), width) {
-                grid.push(ValueType::zero());
-            }
+        let size = width.to_usize().unwrap() * height.to_usize().unwrap();
+        let mut grid: Vec<ValueType> = Vec::with_capacity(size); //flattened grid
+        for _ in 0..size {
+            grid.push(ValueType::zero());
         }
 
         Grid {
