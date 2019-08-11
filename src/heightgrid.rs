@@ -1,7 +1,7 @@
 use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use std::cmp::{min,PartialEq,Eq};
-use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
+use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded};
 use ansi_term::Colour::RGB;
 
 use crate::common::{Distance,Direction,Volume};
@@ -16,8 +16,8 @@ pub struct HeightGridProperties {
 }
 
 pub trait HeightGrid<ScaleType, ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: HeightGridProperties) -> Grid<ScaleType,ValueType>;
     fn render(&self) -> String;
@@ -25,8 +25,8 @@ pub trait HeightGrid<ScaleType, ValueType> where
 }
 
 impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: HeightGridProperties) -> Grid<ScaleType,ValueType> {
         let mut rng = Pcg32::seed_from_u64(seed);

@@ -1,6 +1,6 @@
 use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
-use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
+use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range};
 use std::ops::Index;
 use std::cmp::{min,PartialEq,Eq};
 use std::fmt;
@@ -27,9 +27,8 @@ pub struct GridIterator<'a, ScaleType, ValueType: 'a> {
 }
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
-    ValueType: Num + PartialOrd + PartialEq + Copy ,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
 
     pub fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
         //create initial empty 2D grid
@@ -102,11 +101,26 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         self.data.get_mut(index)
     }
 
-    pub fn inc(&mut self, point: &Point<ScaleType>, amount: ValueType) {
+    pub fn inc(&mut self, point: &Point<ScaleType>, amount: ValueType) -> bool {
         let index = self.index(point);
         let mut v = self.data.get_mut(index).unwrap();
-        //TODO: do overflow checking
-        *v = *v + amount;
+        if *v < ValueType::max_value() - amount {
+            *v = *v + amount;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn dec(&mut self, point: &Point<ScaleType>, amount: ValueType) -> bool {
+        let index = self.index(point);
+        let mut v = self.data.get_mut(index).unwrap();
+        if *v > ValueType::min_value() + amount {
+            *v = *v - amount;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn set(&mut self, point: &Point<ScaleType>, value: ValueType) -> bool {
@@ -181,8 +195,8 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
 ///Implementing the index ([]) operator for Grid
 impl<ScaleType,ValueType> Index<&Point<ScaleType>> for Grid<ScaleType,ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
 
         type Output = ValueType;
 
@@ -193,8 +207,8 @@ impl<ScaleType,ValueType> Index<&Point<ScaleType>> for Grid<ScaleType,ValueType>
 }
 
 impl<'a, ScaleType, ValueType> Iterator for GridIterator<'a, ScaleType,ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Copy {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
 
     type Item = (Point<ScaleType>,&'a ValueType);
 
