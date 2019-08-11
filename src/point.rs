@@ -21,6 +21,7 @@ impl<ScaleType> Point<ScaleType> where
     }
 
     //conversion
+    pub fn new_usize(x: usize, y: usize) -> Point<ScaleType> { Point(ScaleType::from_usize(x).expect("Out of bounds"), ScaleType::from_usize(y).expect("Out of bounds")) }
     pub fn new64(x: u64, y: u64) -> Point<ScaleType> { Point(ScaleType::from_u64(x).expect("Out of bounds"), ScaleType::from_u64(y).expect("Out of bounds")) }
     pub fn new32(x: u32, y: u32) -> Point<ScaleType> { Point(ScaleType::from_u32(x).expect("Out of bounds"), ScaleType::from_u32(y).expect("Out of bounds")) }
     pub fn new16(x: u16, y: u16) -> Point<ScaleType> { Point(ScaleType::from_u16(x).expect("Out of bounds"), ScaleType::from_u16(y).expect("Out of bounds")) }

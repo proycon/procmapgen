@@ -4,7 +4,7 @@ use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range,CheckedAdd,Checked
 use std::ops::{Index,Add,AddAssign};
 use std::cmp::{min,PartialEq,Eq,Ord,PartialOrd,Ordering};
 use std::fmt;
-use std::iter::Iterator;
+use std::iter::{Iterator,FromIterator};
 use std::collections::BinaryHeap;
 
 use crate::common::{Distance,Direction};
@@ -33,11 +33,15 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
     ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
     pub fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
+        Self::new_init(width, height, ValueType::zero())
+    }
+
+    pub fn new_init(width: ScaleType, height: ScaleType, value: ValueType) -> Grid<ScaleType,ValueType> {
         //create initial empty 2D grid
         let size = width.to_usize().unwrap() * height.to_usize().unwrap();
         let mut grid: Vec<ValueType> = Vec::with_capacity(size); //flattened grid
         for _ in 0..size {
-            grid.push(ValueType::zero());
+            grid.push(value);
         }
 
         Grid {
@@ -66,6 +70,21 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         self.size.1.to_usize().unwrap()
     }
 
+    ///Clones the grid with a different ValueType and runs the map function
+    pub fn map_into<ToValueType>(&self, f: impl Fn(Point<ScaleType>, ToValueType) -> ToValueType ) -> Grid<ScaleType,ToValueType> where
+        ToValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+
+        let mut clone: Grid<ScaleType,ToValueType> = Grid::new(self.width(), self.height());
+        for (i, value) in self.data.iter().enumerate() {
+            let point = self.point(i);
+            //MAYBE TODO: add fallback conversion options?
+            let tovalue = ToValueType::from_usize(value.to_usize().expect("map_into(): Unable to convert to usize")).expect("map_into(): unable to convert from usize");
+            clone.set_index(i, f(point, tovalue));
+        }
+        clone
+    }
+
+
     pub fn iter(&self) -> GridIterator<ScaleType, ValueType> {
         GridIterator { grid: &self, current: self.rectangle().iter() }
     }
@@ -90,8 +109,26 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         smallest.expect("Grid has no data")
     }
 
+    pub fn map(mut self, f: impl Fn(Point<ScaleType>, ValueType) -> ValueType ) -> Self {
+        let width = self.width_as_usize();
+        for (i, value) in self.data.iter_mut().enumerate() {
+            let y = i / width;
+            let x = i % width;
+            *value = f(Point::new_usize(x,y), *value);
+        }
+        self
+    }
+
+    ///Point to Index
     pub fn index(&self, point: &Point<ScaleType>) -> usize {
        (point.y() * self.width() + point.x()).to_usize().expect("Unable to cast to usize")
+    }
+
+    ///Index to Point
+    pub fn point(&self, index: usize) -> Point<ScaleType> {
+        let y = index / self.width_as_usize();
+        let x = index % self.width_as_usize();
+        Point(ScaleType::from_usize(x).unwrap(), ScaleType::from_usize(y).unwrap())
     }
 
     pub fn get(&self, point: &Point<ScaleType>) -> Option<&ValueType> {
@@ -137,6 +174,15 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         return false;
     }
 
+    pub fn set_index(&mut self, index: usize, value: ValueType) -> bool {
+        if let Some(mut v) = self.data.get_mut(index) {
+            *v = value;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn hasneighbour(&self, point: &Point<ScaleType>, direction: Direction) -> bool {
         if let Some(neighbour) = point.neighbour(direction, Some(self.width()), Some(self.height())) {
             self[&neighbour] > ValueType::zero()
@@ -163,6 +209,22 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
        count
     }
 
+    pub fn getneighbour(&self, point: &Point<ScaleType>, direction: Direction) -> Option<Point<ScaleType>> {
+        if let Some(neighbour) = point.neighbour(direction, Some(self.width()), Some(self.height())) {
+            Some(neighbour)
+        } else {
+            None
+        }
+    }
+
+    pub fn getneighbours(&self, point: &Point<ScaleType>) -> Vec<Point<ScaleType>> {
+       let mut neighbours = Vec::new();
+       if let Some(neighbour) = self.getneighbour(point, Direction::North) { neighbours.push(neighbour); }
+       if let Some(neighbour) = self.getneighbour(point, Direction::East) { neighbours.push(neighbour); }
+       if let Some(neighbour) = self.getneighbour(point, Direction::South) { neighbours.push(neighbour); }
+       if let Some(neighbour) = self.getneighbour(point, Direction::West) { neighbours.push(neighbour); }
+       neighbours
+    }
 
 
 
@@ -220,15 +282,45 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         }
     }
 
-    fn findpath(&self, from: &Point<ScaleType>, to: &Point<ScaleType>) -> Vec<Point<ScaleType>> {
+    fn findpath(&self, from: &Point<ScaleType>, to: &Point<ScaleType>, costgrid: Option<Grid<ScaleType,u8>>) -> Vec<Point<ScaleType>> {
+
         let mut fringe: BinaryHeap<PathState<ScaleType>> = BinaryHeap::new();
 
+        //Maintains current distance from "from" to each node, initialise to the highest possible
+        //value
+        let mut dist: Grid<ScaleType,u32> = Grid::new_init(self.width(), self.height(), u32::max_value());
+
+        let costgrid = costgrid.unwrap_or(self.map_into(
+                |_point,value| {
+                    if value == 0 { 0 } else { 1 }
+                }
+        ));
+
+        //push the start
+        dist.set(from, 0);
         fringe.push(PathState { point: *from, cost: 0 });
 
         while let Some(PathState { point, cost }) = fringe.pop() {
             if point == *to {
 
             }
+
+            if cost > dist[&point] {
+                continue;
+            }
+
+
+            //Expand the neighbour nodes,
+            for neighbour in self.getneighbours(&point).into_iter() {
+                let nextstate = PathState { point: neighbour, cost: cost + 1 };
+
+                if nextstate.cost < dist[&neighbour] {
+
+                }
+
+
+            }
+
 
         }
 
@@ -242,7 +334,7 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 #[derive(Eq,PartialEq)]
 struct PathState<ScaleType> {
    point: Point<ScaleType>,
-   cost: usize
+   cost: u32
 }
 
 // The priority queue depends on `Ord`. (from:
@@ -304,3 +396,5 @@ impl<'a, ScaleType, ValueType> Iterator for GridIterator<'a, ScaleType,ValueType
         }
     }
 }
+
+
