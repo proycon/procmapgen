@@ -1,7 +1,7 @@
 use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use std::cmp::{min,max,PartialEq,Eq};
-use num::{Integer,Num,FromPrimitive,ToPrimitive,range,Bounded};
+use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range,CheckedAdd,CheckedSub};
 
 use crate::common::{Distance,Direction,Volume};
 use crate::point::Point;
@@ -14,7 +14,7 @@ pub struct RoomGridProperties {
 
 pub trait RoomGrid<ScaleType, ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: RoomGridProperties) -> Grid<ScaleType,ValueType>;
     fn render(&self) -> String;
@@ -23,7 +23,7 @@ pub trait RoomGrid<ScaleType, ValueType> where
 
 impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: RoomGridProperties) -> Grid<ScaleType,ValueType> {
         let mut rng = Pcg32::seed_from_u64(seed);

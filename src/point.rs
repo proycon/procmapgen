@@ -1,7 +1,7 @@
 use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
-use std::ops::Index;
+use std::ops::{Add,AddAssign};
 use std::cmp::{min,PartialEq,Eq};
 use std::fmt;
 
@@ -115,6 +115,25 @@ impl<ScaleType> Distance for Point<ScaleType> where
         let disty: f64 = (y2 as f64 - y as f64).abs();
         let distance: f64 = (distx.powf(2.0) + disty.powf(2.0)).sqrt();
         distance
+    }
+}
+
+impl<ScaleType> Add for Point<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    type Output = Point<ScaleType>;
+
+    fn add(self, other: Point<ScaleType>) -> Point<ScaleType> {
+        Point(self.x() + other.x(), self.y() + other.y())
+    }
+}
+
+impl<ScaleType> AddAssign for Point<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    fn add_assign(&mut self, other: Point<ScaleType>) {
+        self.0 = self.0 + other.x();
+        self.1 = self.1 + other.y();
     }
 }
 

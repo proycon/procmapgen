@@ -1,7 +1,7 @@
 use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
-use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range};
-use std::ops::Index;
+use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range,CheckedAdd,CheckedSub};
+use std::ops::{Index,Add,AddAssign};
 use std::cmp::{min,PartialEq,Eq};
 use std::fmt;
 use std::iter::Iterator;
@@ -12,6 +12,7 @@ use crate::rectangle::{Rectangle,RectIterator};
 
 
 ///The basic grid type
+#[derive(Clone,PartialEq)]
 pub struct Grid<ScaleType,ValueType> {
     ///A flattened vector
     data: Vec<ValueType>,
@@ -27,8 +28,8 @@ pub struct GridIterator<'a, ScaleType, ValueType: 'a> {
 }
 
 impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
-    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
     pub fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
         //create initial empty 2D grid
@@ -103,22 +104,26 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
 
     pub fn inc(&mut self, point: &Point<ScaleType>, amount: ValueType) -> bool {
         let index = self.index(point);
-        let mut v = self.data.get_mut(index).unwrap();
-        if *v < ValueType::max_value() - amount {
-            *v = *v + amount;
+        let mut value = self.data.get_mut(index).unwrap();
+        if let Some(result) = value.checked_add(&amount) {
+            *value = result;
             true
         } else {
+            //value is saturated
+            *value = ValueType::max_value();
             false
         }
     }
 
     pub fn dec(&mut self, point: &Point<ScaleType>, amount: ValueType) -> bool {
         let index = self.index(point);
-        let mut v = self.data.get_mut(index).unwrap();
-        if *v > ValueType::min_value() + amount {
-            *v = *v - amount;
+        let mut value = self.data.get_mut(index).unwrap();
+        if let Some(result) = value.checked_sub(&amount) {
+            *value = result;
             true
         } else {
+            //value is saturated
+            *value = ValueType::min_value();
             false
         }
     }
@@ -190,13 +195,37 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         }
     }
 
+    fn add(&mut self, other: &Self) {
+        let width = min(self.width(), other.width());
+        let height = min(self.height(), other.height());
+
+        for x in range(ScaleType::zero(),width) {
+            for y in range(ScaleType::zero(),height) {
+                let point = Point(x,y);
+                self.inc(&point, other[&point]);
+            }
+        }
+    }
+
+    fn sub(&mut self, other: &Self) {
+        let width = min(self.width(), other.width());
+        let height = min(self.height(), other.height());
+
+        for x in range(ScaleType::zero(),width) {
+            for y in range(ScaleType::zero(),height) {
+                let point = Point(x,y);
+                self.dec(&point, other[&point]);
+            }
+        }
+    }
+
 }
 
 
 ///Implementing the index ([]) operator for Grid
 impl<ScaleType,ValueType> Index<&Point<ScaleType>> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
         type Output = ValueType;
 
@@ -206,9 +235,11 @@ impl<ScaleType,ValueType> Index<&Point<ScaleType>> for Grid<ScaleType,ValueType>
 
 }
 
+
+
 impl<'a, ScaleType, ValueType> Iterator for GridIterator<'a, ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
     type Item = (Point<ScaleType>,&'a ValueType);
 
