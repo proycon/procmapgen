@@ -2,7 +2,7 @@ use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use num::{Integer,Num,FromPrimitive,ToPrimitive,range};
 use std::ops::{Add,AddAssign};
-use std::cmp::{min,PartialEq,Eq};
+use std::cmp::{min,PartialEq,Eq,Ord,Ordering};
 use std::fmt;
 
 use crate::common::{Distance,Direction};
@@ -145,3 +145,29 @@ impl<ScaleType> fmt::Display for Point<ScaleType> where
     }
 }
 
+impl<ScaleType> PartialOrd for Point<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+
+}
+
+impl<ScaleType> Ord for Point<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Copy {
+
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.y() < other.y() {
+            Ordering::Less
+        } else if self.y() > other.y() {
+            Ordering::Greater
+        } else if self.x() < other.x() {
+            Ordering::Less
+        } else if self.x() > other.x() {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    }
+}

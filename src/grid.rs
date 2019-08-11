@@ -2,9 +2,10 @@ use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range,CheckedAdd,CheckedSub};
 use std::ops::{Index,Add,AddAssign};
-use std::cmp::{min,PartialEq,Eq};
+use std::cmp::{min,PartialEq,Eq,Ord,PartialOrd,Ordering};
 use std::fmt;
 use std::iter::Iterator;
+use std::collections::BinaryHeap;
 
 use crate::common::{Distance,Direction};
 use crate::point::Point;
@@ -219,6 +220,54 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         }
     }
 
+    fn findpath(&self, from: &Point<ScaleType>, to: &Point<ScaleType>) -> Vec<Point<ScaleType>> {
+        let mut fringe: BinaryHeap<PathState<ScaleType>> = BinaryHeap::new();
+
+        fringe.push(PathState { point: *from, cost: 0 });
+
+        while let Some(PathState { point, cost }) = fringe.pop() {
+            if point == *to {
+
+            }
+
+        }
+
+        vec![]
+
+    }
+
+}
+
+
+#[derive(Eq,PartialEq)]
+struct PathState<ScaleType> {
+   point: Point<ScaleType>,
+   cost: usize
+}
+
+// The priority queue depends on `Ord`. (from:
+// https://doc.rust-lang.org/std/collections/binary_heap/index.html)
+// Explicitly implement the trait so the queue becomes a min-heap
+// instead of a max-heap.
+impl<ScaleType> Ord for PathState<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy {
+
+    fn cmp(&self, other: &PathState<ScaleType>) -> Ordering {
+        // Notice that the we flip the ordering on costs.
+        // In case of a tie we compare positions - this step is necessary
+        // to make implementations of `PartialEq` and `Ord` consistent.
+        other.cost.cmp(&self.cost)
+            .then_with(|| self.point.cmp(&other.point))
+    }
+}
+
+// `PartialOrd` needs to be implemented as well.
+impl<ScaleType> PartialOrd for PathState<ScaleType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy {
+
+    fn partial_cmp(&self, other: &PathState<ScaleType>) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 
