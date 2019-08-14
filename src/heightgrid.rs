@@ -82,19 +82,22 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
             HeightRenderStyle::HeatMap => {
                 //convert HSV (hue, saturation, value) to RGB, assuming saturation and value are
                 //always max (1)
-                let hue: i32 = 360 - ((v as i32 - min as i32) * (360/(max as i32 - min as i32)));
-                let x: i32 = 1 - ((hue / 60) % 2 - 1).abs();
+                let hue: f64 = 360.0 - ((v as f64 - min as f64) * (360.0/(max as f64 - min as f64)));
+                let x: f64 = 1.0 - ((hue / 60.0) % 2.0 - 1.0).abs();
+                let x: u8 = (x * 255.0) as u8;
+                println!("{} -> {} -> {}",v, hue, x);
                 match hue {
-                    _ if hue < 60 => (255, x as u8 , 0),
-                    _ if hue < 120 => (x as u8, 255, 0),
-                    _ if hue < 180 => (0, 255, x as u8),
-                    _ if hue < 240 => (0, x as u8, 255),
-                    _ if hue < 300 => (x as u8, 0, 255),
-                    _ => (x as u8, 0, 255)
+                    _ if hue < 60.0 => (255, x , 0),
+                    _ if hue < 120.0 => (x, 255, 0),
+                    _ if hue < 180.0 => (0, 255, x),
+                    _ if hue < 240.0 => (0, x, 255),
+                    _ if hue < 300.0 => (x, 0, 255),
+                    _ => (x, 0, 255)
                 }
             }
 
         };
+        println!("{},{},{}",r,g,b);
         RGB(r,g,b).paint("█").to_string()
     }
 }
