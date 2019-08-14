@@ -17,8 +17,8 @@ use std::thread;
 use std::time;
 
 use grid::Grid;
-use pipegrid::{PipeGrid,PipeGridProperties};
-use heightgrid::{HeightGrid,HeightGridProperties};
+use pipegrid::{PipeGrid,PipeGridProperties,PipeRenderStyle};
+use heightgrid::{HeightGrid,HeightGridProperties,HeightRenderStyle};
 use roomgrid::{RoomGrid,RoomGridProperties};
 
 
@@ -85,6 +85,12 @@ fn main() {
              .short("R")
              .default_value("6")
         )
+        .arg(Arg::with_name("style")
+             .help("Rendering style. For pipes: thin (default), thick")
+             .long("style")
+             .short("y")
+             .default_value("default")
+        )
         .arg(Arg::with_name("type")
              .help("type")
              .long("type")
@@ -124,13 +130,20 @@ fn main() {
                     regularseeds: regularseeds,
                     interconnect: argmatches.is_present("interconnect"),
                 });
-                println!("{}", PipeGrid::render(&grid));
+                println!("{}", PipeGrid::render(&grid, match argmatches.value_of("style").unwrap() {
+                    "thick" => PipeRenderStyle::Thick,
+                    _ => PipeRenderStyle::Thin
+                }));
             },
             "height" => {
                 let grid: Grid<u16,u8> = <Grid<u16,u8> as HeightGrid<u16,u8>>::generate(width as u16, height as u16, seed, HeightGridProperties {
                     iterations: argmatches.value_of("iterations").unwrap().parse::<usize>().unwrap() as usize,
                 });
-                println!("{}", HeightGrid::render(&grid));
+                println!("{}", HeightGrid::render(&grid, match argmatches.value_of("style").unwrap() {
+                    "heatmap" => HeightRenderStyle::HeatMap,
+                    "terrain" => HeightRenderStyle::Terrain,
+                    _ => HeightRenderStyle::Simple
+                }));
             },
             "rooms" => {
                 let grid: Grid<u16,u8> = <Grid<u16,u8> as RoomGrid<u16,u8>>::generate(width as u16, height as u16, seed, RoomGridProperties {

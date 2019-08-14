@@ -20,15 +20,21 @@ pub struct PipeGridProperties {
     pub interconnect: bool,
 }
 
+#[derive(Debug,Clone,Copy)]
+pub enum PipeRenderStyle {
+    Thin,
+    Thick
+}
+
 pub trait PipeGrid<ScaleType, ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
     ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: PipeGridProperties) -> Grid<ScaleType,ValueType>;
-    fn render(&self) -> String;
-    fn rendercell(&self, point: &Point<ScaleType>) -> String;
-
+    fn render(&self, renderstyle: PipeRenderStyle) -> String;
+    fn rendercell(&self, point: &Point<ScaleType>,renderstyle: PipeRenderStyle) -> String;
 }
+
 
 impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
@@ -138,57 +144,62 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
         grid
     }
 
-    fn render(&self) -> String {
+    fn render(&self, renderstyle: PipeRenderStyle) -> String {
         let mut output: String = String::new();
         for (i, point) in self.rectangle().iter().enumerate() {
             if point.x() == ScaleType::zero() && i > 0 {
                 output.push('\n');
             }
-            output += PipeGrid::rendercell(self, &point).as_str();
+            output += PipeGrid::rendercell(self, &point, renderstyle).as_str();
         }
         output
     }
 
-    fn rendercell(&self, point: &Point<ScaleType>) -> String {
+    fn rendercell(&self, point: &Point<ScaleType>, renderstyle: PipeRenderStyle) -> String {
         let v = self[point];
         let chr: char = if v == ValueType::zero() {
             ' '
         } else {
            let (hasnorth, haseast, hassouth, haswest) = self.hasneighbours(point);
            let isbackbone = v <= ValueType::from_u8(2).unwrap();
-           match (hasnorth, haseast, hassouth, haswest, isbackbone) {
-               (true,true,true,true, false) => '┼',
-               (true,true,true,true, true) => '╋',
-               (true,true,true,false, false) => '├',
-               (true,true,true,false, true) => '┣',
-               (false,true,true,true, false) => '┬',
-               (false,true,true,true, true) => '┳',
-               (true,false,true,true, false) => '┤',
-               (true,false,true,true, true) => '┫',
-               (true,true,false,true, false) => '┴',
-               (true,true,false,true, true) => '┻',
-               (true,true,false,false, false) => '└',
-               (true,true,false,false, true) => '┗',
-               (true,false,true,false, false) => '│',
-               (true,false,true,false, true) => '┃',
-               (true,false,false,true, false) => '┘',
-               (true,false,false,true, true) => '┛',
-               (false,true,true,false, false) => '┌',
-               (false,true,true,false, true) => '┏',
-               (false,true,false,true, false) => '─',
-               (false,true,false,true, true) => '━',
-               (false,false,true,true, false) => '┐',
-               (false,false,true,true, true) => '┓',
-               (true,false,false,false, false) => '╵',
-               (true,false,false,false, true) => '╹',
-               (false,true,false,false, false) => '╶',
-               (false,true,false,false, true) => '╺',
-               (false,false,true,false, false) => '╷',
-               (false,false,true,false, true) => '╻',
-               (false,false,false,true, false) => '╴',
-               (false,false,false,true, true) => '╸',
-               _ => '?',
-           }
+           match renderstyle {
+               PipeRenderStyle::Thick => '█',
+               PipeRenderStyle::Thin => {
+                   match (hasnorth, haseast, hassouth, haswest, isbackbone) {
+                       (true,true,true,true, false) => '┼',
+                       (true,true,true,true, true) => '╋',
+                       (true,true,true,false, false) => '├',
+                       (true,true,true,false, true) => '┣',
+                       (false,true,true,true, false) => '┬',
+                       (false,true,true,true, true) => '┳',
+                       (true,false,true,true, false) => '┤',
+                       (true,false,true,true, true) => '┫',
+                       (true,true,false,true, false) => '┴',
+                       (true,true,false,true, true) => '┻',
+                       (true,true,false,false, false) => '└',
+                       (true,true,false,false, true) => '┗',
+                       (true,false,true,false, false) => '│',
+                       (true,false,true,false, true) => '┃',
+                       (true,false,false,true, false) => '┘',
+                       (true,false,false,true, true) => '┛',
+                       (false,true,true,false, false) => '┌',
+                       (false,true,true,false, true) => '┏',
+                       (false,true,false,true, false) => '─',
+                       (false,true,false,true, true) => '━',
+                       (false,false,true,true, false) => '┐',
+                       (false,false,true,true, true) => '┓',
+                       (true,false,false,false, false) => '╵',
+                       (true,false,false,false, true) => '╹',
+                       (false,true,false,false, false) => '╶',
+                       (false,true,false,false, true) => '╺',
+                       (false,false,true,false, false) => '╷',
+                       (false,false,true,false, true) => '╻',
+                       (false,false,false,true, false) => '╴',
+                       (false,false,false,true, true) => '╸',
+                       _ => '?',
+                   }
+                }
+            }
         };
         chr.to_string()
     }

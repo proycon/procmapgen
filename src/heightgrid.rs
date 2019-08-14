@@ -15,13 +15,20 @@ pub struct HeightGridProperties {
     pub iterations: usize,
 }
 
+#[derive(Debug,Clone,Copy)]
+pub enum HeightRenderStyle {
+    Simple,
+    HeatMap,
+    Terrain
+}
+
 pub trait HeightGrid<ScaleType, ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
     ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: HeightGridProperties) -> Grid<ScaleType,ValueType>;
-    fn render(&self) -> String;
-    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType) -> String;
+    fn render(&self, renderstyle: HeightRenderStyle) -> String;
+    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType,renderstyle: HeightRenderStyle) -> String;
 }
 
 impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
@@ -49,7 +56,7 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
         grid
     }
 
-    fn render(&self) -> String {
+    fn render(&self,renderstyle: HeightRenderStyle) -> String {
         let mut output: String = String::new();
         let min = self.min();
         let max = self.max();
@@ -57,17 +64,37 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
             if point.x() == ScaleType::zero() && i > 0 {
                 output.push('\n');
             }
-            output += HeightGrid::rendercell(self, &point, min, max).as_str();
+            output += HeightGrid::rendercell(self, &point, min, max, renderstyle).as_str();
         }
         output
     }
 
-    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType) -> String {
+    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType,renderstyle: HeightRenderStyle) -> String {
         let v = self[point].to_usize().unwrap();
         let min  = min.to_usize().unwrap();
         let max  = max.to_usize().unwrap();
-        let colour: usize = (v - min) * (255/(max-min));
-        let colour: u8 = colour as u8;
-        RGB(colour,colour,colour).paint("█").to_string()
+        let (r,g,b): (u8,u8,u8) = match renderstyle {
+            HeightRenderStyle::Simple | HeightRenderStyle::Terrain => {
+                let colour: usize = (v - min) * (255/(max-min));
+                let colour: u8 = colour as u8;
+                (colour,colour, colour)
+            },
+            HeightRenderStyle::HeatMap => {
+                //convert HSV (hue, saturation, value) to RGB, assuming saturation and value are
+                //always max (1)
+                let hue: i32 = 360 - ((v as i32 - min as i32) * (360/(max as i32 - min as i32)));
+                let x: i32 = 1 - ((hue / 60) % 2 - 1).abs();
+                match hue {
+                    _ if hue < 60 => (255, x as u8 , 0),
+                    _ if hue < 120 => (x as u8, 255, 0),
+                    _ if hue < 180 => (0, 255, x as u8),
+                    _ if hue < 240 => (0, x as u8, 255),
+                    _ if hue < 300 => (x as u8, 0, 255),
+                    _ => (x as u8, 0, 255)
+                }
+            }
+
+        };
+        RGB(r,g,b).paint("█").to_string()
     }
 }
