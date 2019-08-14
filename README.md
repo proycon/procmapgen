@@ -8,10 +8,13 @@ A small toy project written in Rust: procedural generation of 2D grid-based maps
     * Two classes of pipes, a 'backbone' or set of core pipes (thicker) vs 'regular'
     * Simple visualisation (using unicode block drawing) to standard output
 * ``Height graphs`` - Each cell has a height, good for landscapes
+* ``Room graphs`` - Rooms with corridors
 
 ![Screenshot](https://raw.githubusercontent.com/proycon/procmapgen/master/screenshot.png)
 
 ![Screenshot](https://raw.githubusercontent.com/proycon/procmapgen/master/screenshot2.png)
+
+![Screenshot](https://raw.githubusercontent.com/proycon/procmapgen/master/screenshot3.png)
 
 ## Build instructions
 
@@ -26,10 +29,10 @@ $ cargo build --release
 Usage:
 
 ```
-$ ./target/release/procmapgen --help
+$ cargo run -- --help
 ```
 
-It's fun to use this with ``watch`` to random ones continuously:
+It's fun to use this with ``watch`` to see random ones continuously:
 
 ```
 $ watch -n 0.5 ./target/release/procmapgen
