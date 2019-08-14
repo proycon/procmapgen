@@ -85,7 +85,6 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
                 let hue: f64 = 360.0 - ((v as f64 - min as f64) * (360.0/(max as f64 - min as f64)));
                 let x: f64 = 1.0 - ((hue / 60.0) % 2.0 - 1.0).abs();
                 let x: u8 = (x * 255.0) as u8;
-                println!("{} -> {} -> {}",v, hue, x);
                 match hue {
                     _ if hue < 60.0 => (255, x , 0),
                     _ if hue < 120.0 => (x, 255, 0),
