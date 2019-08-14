@@ -13,6 +13,8 @@ pub mod roomgrid;
 
 use clap::{App,Arg};
 use std::iter::Iterator;
+use std::thread;
+use std::time;
 
 use grid::Grid;
 use pipegrid::{PipeGrid,PipeGridProperties};
@@ -46,6 +48,12 @@ fn main() {
              .takes_value(true)
              .default_value("0")
         )
+        .arg(Arg::with_name("loop")
+             .help("Loop, keep generating random maps ever x milliseconds until the user aborts with control-C")
+             .long("loop")
+             .short("l")
+             .takes_value(true)
+        )
         .arg(Arg::with_name("backboneseeds")
              .help("backboneseeds")
              .long("backboneseeds")
@@ -61,18 +69,18 @@ fn main() {
              .default_value("40,40,60")
         )
         .arg(Arg::with_name("interconnect")
-             .help("Generate more interconnections between branches, resulting in fewer dead ends")
+             .help("(For pipe maps) Generate more interconnections between branches, resulting in fewer dead ends")
              .long("interconnect")
              .short("x")
         )
         .arg(Arg::with_name("iterations")
-             .help("Iterations in generation (for height map)")
+             .help("(For height map) Iterations in generation")
              .long("iterations")
              .short("i")
              .default_value("90")
         )
         .arg(Arg::with_name("rooms")
-             .help("Rooms (for room map)")
+             .help("Number of rooms (for room map)")
              .long("rooms")
              .short("R")
              .default_value("6")
@@ -87,41 +95,60 @@ fn main() {
         )
         .get_matches();
 
-    let mut seed: u64 = argmatches.value_of("seed").unwrap().parse::<u64>().unwrap();
-    if seed == 0 {
-        seed = rand::random::<u64>();
+    let mut looptime: u64 = 0;
+    if argmatches.is_present("loop") {
+        looptime = argmatches.value_of("loop").unwrap().parse::<u64>().expect("Invalid loop time");
     }
-    let width =  argmatches.value_of("width").unwrap().parse::<usize>().unwrap() as usize;
-    let height = argmatches.value_of("height").unwrap().parse::<usize>().unwrap() as usize;
-    match argmatches.value_of("type").unwrap() {
-        "pipes" => {
-            let regularseeds: Option<Vec<&str>>= argmatches.value_of("regularseeds").map(|regularseeds: &str| {
-                                    regularseeds.split_terminator(',').collect()
-                                });
-            let regularseeds: Vec<u16> = regularseeds.unwrap().iter().map(|x:&&str| { x.parse::<u16>().unwrap() } ).collect();
-            //using a <Type as Trait> construction: https://doc.rust-lang.org/book/ch19-03-advanced-traits.html
-            // to construct the grid
-            let grid: Grid<u16,u8> = <Grid<u16,u8> as PipeGrid<u16,u8>>::generate(width as u16,height as u16, seed, PipeGridProperties {
-                backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
-                regularseeds: regularseeds,
-                interconnect: argmatches.is_present("interconnect"),
-            });
-            println!("{}", PipeGrid::render(&grid));
-        },
-        "height" => {
-            let grid: Grid<u16,u8> = <Grid<u16,u8> as HeightGrid<u16,u8>>::generate(width as u16, height as u16, seed, HeightGridProperties {
-                iterations: argmatches.value_of("iterations").unwrap().parse::<usize>().unwrap() as usize,
-            });
-            println!("{}", HeightGrid::render(&grid));
-        },
-        "rooms" => {
-            let grid: Grid<u16,u8> = <Grid<u16,u8> as RoomGrid<u16,u8>>::generate(width as u16, height as u16, seed, RoomGridProperties {
-                rooms: argmatches.value_of("rooms").unwrap().parse::<usize>().unwrap() as usize,
-            });
-            println!("{}", RoomGrid::render(&grid));
-        },
-        _ => {
-            eprintln!("No such type");
+
+    loop {
+
+        let mut seed: u64 = argmatches.value_of("seed").unwrap().parse::<u64>().expect("Invalid seed");
+        if seed == 0 {
+            seed = rand::random::<u64>();
+        } else {
+            //looping makes no sense if we have a specified seed
+            looptime = 0;
+        }
+        let width =  argmatches.value_of("width").unwrap().parse::<usize>().expect("Invalid width") as usize;
+        let height = argmatches.value_of("height").unwrap().parse::<usize>().expect("Invalid height") as usize;
+        match argmatches.value_of("type").unwrap() {
+            "pipes" => {
+                let regularseeds: Option<Vec<&str>>= argmatches.value_of("regularseeds").map(|regularseeds: &str| {
+                                        regularseeds.split_terminator(',').collect()
+                                    });
+                let regularseeds: Vec<u16> = regularseeds.unwrap().iter().map(|x:&&str| { x.parse::<u16>().unwrap() } ).collect();
+                //using a <Type as Trait> construction: https://doc.rust-lang.org/book/ch19-03-advanced-traits.html
+                // to construct the grid
+                let grid: Grid<u16,u8> = <Grid<u16,u8> as PipeGrid<u16,u8>>::generate(width as u16,height as u16, seed, PipeGridProperties {
+                    backboneseeds: argmatches.value_of("backboneseeds").unwrap().parse::<u16>().unwrap() as u16,
+                    regularseeds: regularseeds,
+                    interconnect: argmatches.is_present("interconnect"),
+                });
+                println!("{}", PipeGrid::render(&grid));
+            },
+            "height" => {
+                let grid: Grid<u16,u8> = <Grid<u16,u8> as HeightGrid<u16,u8>>::generate(width as u16, height as u16, seed, HeightGridProperties {
+                    iterations: argmatches.value_of("iterations").unwrap().parse::<usize>().unwrap() as usize,
+                });
+                println!("{}", HeightGrid::render(&grid));
+            },
+            "rooms" => {
+                let grid: Grid<u16,u8> = <Grid<u16,u8> as RoomGrid<u16,u8>>::generate(width as u16, height as u16, seed, RoomGridProperties {
+                    rooms: argmatches.value_of("rooms").unwrap().parse::<usize>().unwrap() as usize,
+                });
+                println!("{}", RoomGrid::render(&grid));
+            },
+            _ => {
+                eprintln!("No such type");
+                break;
+            }
+        }
+        if looptime > 0 {
+            //escape sequence to clear screen
+            print!("{}[2J", 27 as char);
+            thread::sleep(time::Duration::from_millis(looptime));
+        } else {
+            break;
         }
     }
 }
