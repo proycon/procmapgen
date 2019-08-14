@@ -118,7 +118,7 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                         //cornered corridors
                         let from: Point<ScaleType> = room.randompoint(&mut rng);
                         let to: Point<ScaleType> = room2.randompoint(&mut rng);
-                        grid.randompathto(&mut rng, &from, &to, ValueType::one());
+                        grid.rectpathto(&mut rng, &from, &to, ValueType::one());
                     }
                 }
             }

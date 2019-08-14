@@ -2,7 +2,7 @@ use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range,CheckedAdd,CheckedSub};
 use std::ops::{Index,Add,AddAssign};
-use std::cmp::{min,PartialEq,Eq,Ord,PartialOrd,Ordering};
+use std::cmp::{min,max,PartialEq,Eq,Ord,PartialOrd,Ordering};
 use std::fmt;
 use std::iter::{Iterator,FromIterator};
 use std::collections::BinaryHeap;
@@ -256,6 +256,38 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
                 iteration += 1;
             }
         }
+    }
+
+    ///Creates a rectangular path (only horizontal and vertical) between points A and B
+    pub fn rectpathto(&mut self, rng: &mut Pcg32, from: &Point<ScaleType>, to: &Point<ScaleType>, value: ValueType) {
+        if from == to {
+            return;
+        }
+        let dx = if to.x() > from.x() { Direction::East } else { Direction::West };
+        let dy = if to.y() > from.y() { Direction::South } else { Direction::North };
+        let horizontal_first: bool = rng.gen();
+        let xrange = range(min(from.x(),to.x()), max(from.x(),to.x()) + ScaleType::one());
+        let yrange = range(min(from.y(),to.y()), max(from.y(),to.y()) + ScaleType::one());
+        if horizontal_first {
+            for x in  xrange {
+                let point = Point(x,from.y() );
+                if self[&point] == ValueType::zero() { self.set(&point,value); };
+            }
+            for y in  yrange {
+                let point = Point(to.x(), y );
+                if self[&point] == ValueType::zero() { self.set(&point,value); };
+            }
+        } else {
+            for y in  yrange {
+                let point = Point(from.x(), y );
+                if self[&point] == ValueType::zero() { self.set(&point,value); };
+            }
+            for x in  xrange {
+                let point = Point(x,to.y() );
+                if self[&point] == ValueType::zero() { self.set(&point,value); };
+            }
+        }
+
     }
 
     fn add(&mut self, other: &Self) {
