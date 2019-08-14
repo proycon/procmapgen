@@ -46,25 +46,23 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                     break;
                 }
             }
-            if !overlaps {
-                rooms.push(room);
-                for point in room.iter() {
-                    grid.inc(&point, ValueType::one());
-                }
-                tries = 0;
-            } else {
+            if overlaps {
                 tries += 1;
+                continue;
             }
-        }
 
-        //create corridors
-        let mut isolatedrooms = rooms.clone();
-        while !isolatedrooms.is_empty() {
-            if let Some(room) = isolatedrooms.pop() {
-                //find the closest other room
+            for point in room.iter() {
+                grid.inc(&point, ValueType::one());
+            }
+            tries = 0;
+
+            //we add the current room AFTER the following block:
+            //
+            if !rooms.is_empty() {
+                //connect the room with the closest other room
                 let mut mindistance: Option<f64> = None;
                 let mut closest: Option<usize> = None;
-                for (i, room2) in isolatedrooms.iter().enumerate() {
+                for (i, room2) in rooms.iter().enumerate() {
                     let distance: f64 = room.distance(&room2);
                     if mindistance.is_none() || distance < mindistance.unwrap() {
                         mindistance = Some(distance);
@@ -73,14 +71,14 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                 }
 
                 if let Some(index) = closest {
-                    let room2 = isolatedrooms.remove(index);
+                    let room2 = rooms.get(index).unwrap();
                     let mut corridor_h: Option<ScaleType> = None;
                     let mut corridor_v: Option<ScaleType> = None;
                     //can we do a horizontal corridor?
                     if room.top() <= room2.bottom() && room.bottom() >= room2.top() {
                         //horizontal corridor
                         let corridor_h_min = max(room.top(), room2.top());
-                        let corridor_h_max = min(room.bottom(), room2.bottom());
+                        let corridor_h_max = min(room.bottom()+ScaleType::one(), room2.bottom()+ScaleType::one());
                         //eprintln!("H1: {}-{}", corridor_h_min.to_usize().unwrap(), corridor_h_max.to_usize().unwrap());
                         corridor_h = if corridor_h_min == corridor_h_max {
                             Some(corridor_h_min)
@@ -90,7 +88,7 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                     } else if room.left() <= room2.right() && room.right() >= room2.left() {
                         //vertical corridor
                         let corridor_v_min = max(room.left(), room2.left());
-                        let corridor_v_max = min(room.right(), room2.right());
+                        let corridor_v_max = min(room.right()+ScaleType::one(), room2.right()+ScaleType::one());
                         //eprintln!("H1: {}-{}", corridor_v_min.to_usize().unwrap(), corridor_v_max.to_usize().unwrap());
                         corridor_v = if corridor_v_min == corridor_v_max {
                             Some(corridor_v_min)
@@ -117,11 +115,17 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                             grid.set(&Point(corridor_v,y), ValueType::one());
                         }
                     } else {
-                        //TODO: cornered corridors
+                        //cornered corridors
+                        let from: Point<ScaleType> = room.randompoint(&mut rng);
+                        let to: Point<ScaleType> = room2.randompoint(&mut rng);
+                        grid.randompathto(&mut rng, &from, &to, ValueType::one());
                     }
                 }
             }
+
+            rooms.push(room);
         }
+
         grid
     }
 

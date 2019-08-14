@@ -58,6 +58,11 @@ impl<ScaleType> Rectangle<ScaleType> where
         self.bottomright.y()
     }
 
+    ///Return a random point in the rectangle
+    pub fn randompoint(&self, mut rng: &mut Pcg32) -> Point<ScaleType> {
+        return Point::random(&mut rng, &self);
+    }
+
     pub fn new_dims(x: ScaleType, y: ScaleType, width: ScaleType, height: ScaleType) -> Rectangle<ScaleType> {
         Rectangle {
             topleft: Point(x,y),
