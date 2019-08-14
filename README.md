@@ -32,8 +32,9 @@ Usage:
 $ cargo run -- --help
 ```
 
-It's fun to use this with ``watch`` to see random ones continuously:
+It's fun to use this with ``--loop 250`` to see random ones continuously. The number is the amount of milliseconds to
+wait between maps:
 
 ```
-$ watch -n 0.5 ./target/release/procmapgen
+$ cargo run -- --loop 250 --type height
 ```
