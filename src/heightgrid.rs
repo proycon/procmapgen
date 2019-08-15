@@ -71,7 +71,7 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
         let min  = min.to_usize().unwrap();
         let max  = max.to_usize().unwrap();
         let (r,g,b): (u8,u8,u8) = match renderstyle {
-            HeightRenderStyle::Simple | HeightRenderStyle::Terrain => {
+            HeightRenderStyle::Simple => {
                 let colour: usize = (v - min) * (255/(max-min));
                 let colour: u8 = colour as u8;
                 (colour,colour, colour)
@@ -90,8 +90,36 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
                     _ if hue < 300.0 => (x, 0, 255),
                     _ => (x, 0, 255)
                 }
+            },
+            HeightRenderStyle::Terrain => {
+                let level: usize = (v - min) * (100/(max-min));
+                match level {
+                    _ if level <= 15 => {
+                        //deep water - blue
+                        (0,0,100)
+                    },
+                    _ if level <= 30 => {
+                        //shallow water - blue
+                        (0,0,200)
+                    },
+                    _ if level <= 45 => {
+                        //terrain - green
+                        (0,133,0)
+                    },
+                    _ if level <= 75 => {
+                        //terrain - darker green
+                        (0,79,0)
+                    },
+                    _ if level <= 85 =>  {
+                        //terrain - green/gray
+                        (46,75,46)
+                    },
+                    _ => {
+                        //snowtops
+                        (165,165,165)
+                    }
+                }
             }
-
         };
         RenderedTextCell {
             background_colour: Some((r,g,b)),
