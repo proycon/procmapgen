@@ -2,12 +2,11 @@ use rand::{SeedableRng,Rng};
 use rand_pcg::Pcg32;
 use std::cmp::{min,PartialEq,Eq};
 use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range,CheckedAdd,CheckedSub};
-use ansi_term::Colour::RGB;
 
 use crate::common::{Distance,Direction,Volume};
 use crate::point::Point;
 use crate::rectangle::Rectangle;
-use crate::grid::Grid;
+use crate::grid::{Grid,GenericGrid,NumericGrid,RenderedTextCell};
 
 #[derive(Debug,Default)]
 pub struct HeightGridProperties {
@@ -24,16 +23,16 @@ pub enum HeightRenderStyle {
 
 pub trait HeightGrid<ScaleType, ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy + Default {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: HeightGridProperties) -> Grid<ScaleType,ValueType>;
-    fn render(&self, renderstyle: HeightRenderStyle) -> String;
-    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType,renderstyle: HeightRenderStyle) -> String;
+    fn render(&self, renderstyle: HeightRenderStyle) -> Grid<ScaleType,RenderedTextCell>;
+    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType,renderstyle: HeightRenderStyle) -> RenderedTextCell;
 }
 
 impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy + Default {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: HeightGridProperties) -> Grid<ScaleType,ValueType> {
         let mut rng = Pcg32::seed_from_u64(seed);
@@ -56,20 +55,18 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
         grid
     }
 
-    fn render(&self,renderstyle: HeightRenderStyle) -> String {
-        let mut output: String = String::new();
+
+    fn render(&self,renderstyle: HeightRenderStyle) -> Grid<ScaleType,RenderedTextCell> {
+        let mut renderedgrid: Grid<ScaleType, RenderedTextCell> = Grid::new(self.width(), self.height());
         let min = self.min();
         let max = self.max();
         for (i, point) in self.rectangle().iter().enumerate() {
-            if point.x() == ScaleType::zero() && i > 0 {
-                output.push('\n');
-            }
-            output += HeightGrid::rendercell(self, &point, min, max, renderstyle).as_str();
+            renderedgrid.set(&point,  HeightGrid::rendercell(self, &point, min, max, renderstyle) );
         }
-        output
+        renderedgrid
     }
 
-    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType,renderstyle: HeightRenderStyle) -> String {
+    fn rendercell(&self, point: &Point<ScaleType>, min: ValueType, max: ValueType,renderstyle: HeightRenderStyle) -> RenderedTextCell {
         let v = self[point].to_usize().unwrap();
         let min  = min.to_usize().unwrap();
         let max  = max.to_usize().unwrap();
@@ -96,7 +93,10 @@ impl<ScaleType,ValueType> HeightGrid<ScaleType,ValueType> for Grid<ScaleType,Val
             }
 
         };
-        println!("{},{},{}",r,g,b);
-        RGB(r,g,b).paint("█").to_string()
+        RenderedTextCell {
+            background_colour: Some((r,g,b)),
+            foreground_colour: None,
+            text: None, //defaults to space
+        }
     }
 }

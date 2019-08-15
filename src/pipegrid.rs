@@ -6,7 +6,7 @@ use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range,CheckedAdd,Checked
 use crate::common::{Distance,Direction,Volume};
 use crate::point::Point;
 use crate::rectangle::Rectangle;
-use crate::grid::Grid;
+use crate::grid::{Grid,GenericGrid,NumericGrid,RenderedTextCell};
 
 #[derive(Debug,Default)]
 pub struct PipeGridProperties {
@@ -28,17 +28,17 @@ pub enum PipeRenderStyle {
 
 pub trait PipeGrid<ScaleType, ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy + Default {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: PipeGridProperties) -> Grid<ScaleType,ValueType>;
-    fn render(&self, renderstyle: PipeRenderStyle) -> String;
-    fn rendercell(&self, point: &Point<ScaleType>,renderstyle: PipeRenderStyle) -> String;
+    fn render(&self, renderstyle: PipeRenderStyle) -> Grid<ScaleType,RenderedTextCell>;
+    fn rendercell(&self, point: &Point<ScaleType> ,renderstyle: PipeRenderStyle) -> RenderedTextCell;
 }
 
 
 impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy + Default {
 
     ///Generates the network (a planar graph), with a backbone
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: PipeGridProperties) -> Grid<ScaleType,ValueType> {
@@ -144,18 +144,15 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
         grid
     }
 
-    fn render(&self, renderstyle: PipeRenderStyle) -> String {
-        let mut output: String = String::new();
+    fn render(&self,renderstyle: PipeRenderStyle) -> Grid<ScaleType,RenderedTextCell> {
+        let mut renderedgrid: Grid<ScaleType, RenderedTextCell> = Grid::new(self.width(), self.height());
         for (i, point) in self.rectangle().iter().enumerate() {
-            if point.x() == ScaleType::zero() && i > 0 {
-                output.push('\n');
-            }
-            output += PipeGrid::rendercell(self, &point, renderstyle).as_str();
+            renderedgrid.set(&point,  PipeGrid::rendercell(self, &point, renderstyle) );
         }
-        output
+        renderedgrid
     }
 
-    fn rendercell(&self, point: &Point<ScaleType>, renderstyle: PipeRenderStyle) -> String {
+    fn rendercell(&self, point: &Point<ScaleType>, renderstyle: PipeRenderStyle) -> RenderedTextCell {
         let v = self[point];
         let chr: char = if v == ValueType::zero() {
             ' '
@@ -201,7 +198,11 @@ impl<ScaleType,ValueType> PipeGrid<ScaleType,ValueType> for Grid<ScaleType,Value
                 }
             }
         };
-        chr.to_string()
+        RenderedTextCell {
+            background_colour: None,
+            foreground_colour: None,
+            text: Some(chr.to_string())
+        }
     }
 
 }

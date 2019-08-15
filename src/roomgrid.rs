@@ -6,7 +6,7 @@ use num::{Integer,Num,FromPrimitive,ToPrimitive,Bounded,range,CheckedAdd,Checked
 use crate::common::{Distance,Direction,Volume};
 use crate::point::Point;
 use crate::rectangle::Rectangle;
-use crate::grid::Grid;
+use crate::grid::{Grid,GenericGrid,NumericGrid,RenderedTextCell};
 
 pub struct RoomGridProperties {
     pub rooms: usize,
@@ -14,16 +14,16 @@ pub struct RoomGridProperties {
 
 pub trait RoomGrid<ScaleType, ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy + Default {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: RoomGridProperties) -> Grid<ScaleType,ValueType>;
-    fn render(&self) -> String;
-    fn rendercell(&self, point: &Point<ScaleType>) -> String;
+    fn render(&self) -> Grid<ScaleType,RenderedTextCell>;
+    fn rendercell(&self, point: &Point<ScaleType>) -> RenderedTextCell;
 }
 
 impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded +  Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy + Default {
 
     fn generate(width: ScaleType, height: ScaleType, seed: u64, properties: RoomGridProperties) -> Grid<ScaleType,ValueType> {
         let mut rng = Pcg32::seed_from_u64(seed);
@@ -129,22 +129,27 @@ impl<ScaleType,ValueType> RoomGrid<ScaleType,ValueType> for Grid<ScaleType,Value
         grid
     }
 
-    fn render(&self) -> String {
-        let mut output: String = String::new();
+    fn render(&self) -> Grid<ScaleType,RenderedTextCell> {
+        let mut renderedgrid: Grid<ScaleType, RenderedTextCell> = Grid::new(self.width(), self.height());
         for (i, point) in self.rectangle().iter().enumerate() {
-            if point.x() == ScaleType::zero() && i > 0 {
-                output.push('\n');
-            }
-            output += RoomGrid::rendercell(self, &point).as_str();
+            renderedgrid.set(&point,  RoomGrid::rendercell(self, &point) );
         }
-        output
+        renderedgrid
     }
 
-    fn rendercell(&self, point: &Point<ScaleType>) -> String {
+    fn rendercell(&self, point: &Point<ScaleType>) -> RenderedTextCell {
         if self[&point] != ValueType::zero() {
-            "█".to_string()
+            RenderedTextCell {
+                background_colour: Some((127,127,127)),
+                foreground_colour: None,
+                text: None
+            }
         } else {
-            " ".to_string()
+            RenderedTextCell {
+                background_colour: Some((0,0,0)),
+                foreground_colour: None,
+                text: None
+            }
         }
     }
 }

@@ -6,6 +6,7 @@ use std::cmp::{min,max,PartialEq,Eq,Ord,PartialOrd,Ordering};
 use std::fmt;
 use std::iter::{Iterator,FromIterator};
 use std::collections::BinaryHeap;
+use ansi_term;
 
 use crate::common::{Distance,Direction};
 use crate::point::Point;
@@ -28,20 +29,20 @@ pub struct GridIterator<'a, ScaleType, ValueType: 'a> {
     current: RectIterator<ScaleType>,
 }
 
-impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
+pub trait GenericGrid<ScaleType, ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Default + PartialEq  + Clone {
 
-    pub fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
-        Self::new_init(width, height, ValueType::zero())
+    fn new(width: ScaleType, height: ScaleType) -> Grid<ScaleType,ValueType> {
+        Self::new_init(width, height, ValueType::default())
     }
 
-    pub fn new_init(width: ScaleType, height: ScaleType, value: ValueType) -> Grid<ScaleType,ValueType> {
+    fn new_init(width: ScaleType, height: ScaleType, value: ValueType) -> Grid<ScaleType,ValueType> {
         //create initial empty 2D grid
         let size = width.to_usize().unwrap() * height.to_usize().unwrap();
         let mut grid: Vec<ValueType> = Vec::with_capacity(size); //flattened grid
         for _ in 0..size {
-            grid.push(value);
+            grid.push(value.clone());
         }
 
         Grid {
@@ -50,48 +51,161 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         }
     }
 
-    pub fn width(&self) -> ScaleType {
-        self.size.0
-    }
 
-    pub fn height(&self) -> ScaleType {
-        self.size.1
-    }
 
-    pub fn rectangle(&self) -> Rectangle<ScaleType> {
+    fn rectangle(&self) -> Rectangle<ScaleType> {
         Rectangle::new_dims(ScaleType::zero(), ScaleType::zero(), self.width(), self.height())
     }
 
-    pub fn width_as_usize(&self) -> usize {
-        self.size.0.to_usize().unwrap()
+    fn width_as_usize(&self) -> usize {
+        self.width().to_usize().expect("Conversion error")
     }
 
-    pub fn height_as_usize(&self) -> usize {
-        self.size.1.to_usize().unwrap()
+    fn height_as_usize(&self) -> usize {
+        self.height().to_usize().expect("Conversion error")
     }
 
-    ///Clones the grid with a different ValueType and runs the map function
-    pub fn map_into<ToValueType>(&self, f: impl Fn(Point<ScaleType>, ToValueType) -> ToValueType ) -> Grid<ScaleType,ToValueType> where
-        ToValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
 
-        let mut clone: Grid<ScaleType,ToValueType> = Grid::new(self.width(), self.height());
-        for (i, value) in self.data.iter().enumerate() {
-            let point = self.point(i);
-            //MAYBE TODO: add fallback conversion options?
-            let tovalue = ToValueType::from_usize(value.to_usize().expect("map_into(): Unable to convert to usize")).expect("map_into(): unable to convert from usize");
-            clone.set_index(i, f(point, tovalue));
+    ///Point to Index
+    fn index(&self, point: &Point<ScaleType>) -> usize {
+       (point.y() * self.width() + point.x()).to_usize().expect("Unable to cast to usize")
+    }
+
+    ///Index to Point
+    fn point(&self, index: usize) -> Point<ScaleType> {
+        let y = index / self.width_as_usize();
+        let x = index % self.width_as_usize();
+        Point(ScaleType::from_usize(x).unwrap(), ScaleType::from_usize(y).unwrap())
+    }
+
+    fn set(&mut self, point: &Point<ScaleType>, value: ValueType) -> bool {
+        if let Some(v) = self.get_mut(point) {
+            *v = value;
+            return true;
         }
-        clone
+        return false;
+    }
+
+    fn is_set(&self, point: &Point<ScaleType>) -> bool {
+        *self.get(point).expect("Unable to unpack") != ValueType::default()
+    }
+
+    fn set_index(&mut self, index: usize, value: ValueType) -> bool {
+        if let Some(mut v) = self.get_mut_by_index(index) {
+            *v = value;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn hasneighbour(&self, point: &Point<ScaleType>, direction: Direction) -> bool {
+        if let Some(neighbour) = point.neighbour(direction, Some(self.width()), Some(self.height())) {
+            match self.get(&neighbour) {
+                Some(value) if *value != ValueType::default() => true,
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    fn hasneighbours(&self,point: &Point<ScaleType>) -> (bool, bool, bool, bool) {
+       (
+           self.hasneighbour(point, Direction::North),
+           self.hasneighbour(point, Direction::East),
+           self.hasneighbour(point, Direction::South),
+           self.hasneighbour(point, Direction::West),
+       )
+    }
+
+    fn countneighbours(&self, point: &Point<ScaleType>) -> usize {
+       let mut count = 0;
+       if self.hasneighbour(point, Direction::North) { count += 1 };
+       if self.hasneighbour(point, Direction::East) { count += 1 };
+       if self.hasneighbour(point, Direction::South) { count += 1 };
+       if self.hasneighbour(point, Direction::West) { count += 1 };
+       count
+    }
+
+    fn getneighbour(&self, point: &Point<ScaleType>, direction: Direction) -> Option<Point<ScaleType>> {
+        if let Some(neighbour) = point.neighbour(direction, Some(self.width()), Some(self.height())) {
+            Some(neighbour)
+        } else {
+            None
+        }
+    }
+
+    fn getneighbours(&self, point: &Point<ScaleType>) -> Vec<Point<ScaleType>> {
+       let mut neighbours = Vec::new();
+       if let Some(neighbour) = self.getneighbour(point, Direction::North) { neighbours.push(neighbour); }
+       if let Some(neighbour) = self.getneighbour(point, Direction::East) { neighbours.push(neighbour); }
+       if let Some(neighbour) = self.getneighbour(point, Direction::South) { neighbours.push(neighbour); }
+       if let Some(neighbour) = self.getneighbour(point, Direction::West) { neighbours.push(neighbour); }
+       neighbours
     }
 
 
-    pub fn iter(&self) -> GridIterator<ScaleType, ValueType> {
+    fn get(&self, point: &Point<ScaleType>) -> Option<&ValueType> {
+        self.get_data_vec().get(self.index(point))
+    }
+
+    fn get_mut(&mut self, point: &Point<ScaleType>) -> Option<&mut ValueType> {
+        let index = self.index(point);
+        self.get_mut_data_vec().get_mut(index)
+    }
+
+    fn get_by_index(&self, index: usize) -> Option<&ValueType> {
+        self.get_data_vec().get(index)
+    }
+
+    fn get_mut_by_index(&mut self, index: usize) -> Option<&mut ValueType> {
+        self.get_mut_data_vec().get_mut(index)
+    }
+
+    //methods that need to be implemented:
+    fn width(&self) -> ScaleType;
+    fn height(&self) -> ScaleType;
+    fn iter(&self) -> GridIterator<ScaleType, ValueType>;
+    fn get_data_vec(&self) -> &Vec<ValueType>;
+    fn get_mut_data_vec(&mut self) -> &mut Vec<ValueType>;
+
+}
+
+impl<ScaleType,ValueType> GenericGrid<ScaleType,ValueType> for Grid<ScaleType,ValueType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
+    ValueType: Default + PartialEq + Clone {
+
+
+    fn width(&self) -> ScaleType {
+        self.size.0
+    }
+
+    fn height(&self) -> ScaleType {
+        self.size.1
+    }
+
+    fn iter(&self) -> GridIterator<ScaleType, ValueType> {
         GridIterator { grid: &self, current: self.rectangle().iter() }
     }
 
-    pub fn max(&self) -> ValueType {
+
+    fn get_data_vec(&self) -> &Vec<ValueType> {
+        &self.data
+    }
+
+    fn get_mut_data_vec(&mut self) -> &mut Vec<ValueType> {
+        &mut self.data
+    }
+}
+
+pub trait NumericGrid<'a,ScaleType, ValueType>: GenericGrid<ScaleType, ValueType> + Index<&'a Point<ScaleType>> where
+    ScaleType: 'a + Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
+    ValueType: 'a + Num + Default + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+
+    fn max(&self) -> ValueType {
         let mut largest: Option<ValueType> = None;
-        for v in self.data.iter() {
+        for (_, v) in self.iter() {
             if largest.is_none() ||  largest.unwrap() < *v {
                 largest = Some(*v);
             }
@@ -99,9 +213,9 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         largest.expect("Grid has no data")
     }
 
-    pub fn min(&self) -> ValueType {
+    fn min(&self) -> ValueType {
         let mut smallest: Option<ValueType> = None;
-        for v in self.data.iter() {
+        for (_,v) in self.iter() {
             if smallest.is_none() ||  smallest.unwrap() > *v {
                 smallest = Some(*v);
             }
@@ -109,40 +223,21 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         smallest.expect("Grid has no data")
     }
 
-    pub fn map(mut self, f: impl Fn(Point<ScaleType>, ValueType) -> ValueType ) -> Self {
-        let width = self.width_as_usize();
-        for (i, value) in self.data.iter_mut().enumerate() {
-            let y = i / width;
-            let x = i % width;
-            *value = f(Point::new_usize(x,y), *value);
+    ///Clones the grid with a different ValueType and runs the map function
+    fn map_into<ToValueType>(&self, f: impl Fn(Point<ScaleType>, ToValueType) -> ToValueType ) -> Grid<ScaleType,ToValueType> where
+        ToValueType: Num + Default + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+
+        let mut clone: Grid<ScaleType,ToValueType> = Grid::new(self.width(), self.height());
+        for (i, (point, value)) in self.iter().enumerate() {
+            //MAYBE TODO: add fallback conversion options?
+            let tovalue = ToValueType::from_usize(value.to_usize().expect("map_into(): Unable to convert to usize")).expect("map_into(): unable to convert from usize");
+            clone.set_index(i, f(point, tovalue));
         }
-        self
+        clone
     }
 
-    ///Point to Index
-    pub fn index(&self, point: &Point<ScaleType>) -> usize {
-       (point.y() * self.width() + point.x()).to_usize().expect("Unable to cast to usize")
-    }
-
-    ///Index to Point
-    pub fn point(&self, index: usize) -> Point<ScaleType> {
-        let y = index / self.width_as_usize();
-        let x = index % self.width_as_usize();
-        Point(ScaleType::from_usize(x).unwrap(), ScaleType::from_usize(y).unwrap())
-    }
-
-    pub fn get(&self, point: &Point<ScaleType>) -> Option<&ValueType> {
-        self.data.get(self.index(point))
-    }
-
-    pub fn get_mut(&mut self, point: &Point<ScaleType>) -> Option<&mut ValueType> {
-        let index = self.index(point);
-        self.data.get_mut(index)
-    }
-
-    pub fn inc(&mut self, point: &Point<ScaleType>, amount: ValueType) -> bool {
-        let index = self.index(point);
-        let mut value = self.data.get_mut(index).unwrap();
+    fn inc(&mut self, point: &Point<ScaleType>, amount: ValueType) -> bool {
+        let mut value = self.get_mut(point).expect("Point not found in grid!");
         if let Some(result) = value.checked_add(&amount) {
             *value = result;
             true
@@ -153,9 +248,8 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         }
     }
 
-    pub fn dec(&mut self, point: &Point<ScaleType>, amount: ValueType) -> bool {
-        let index = self.index(point);
-        let mut value = self.data.get_mut(index).unwrap();
+    fn dec(&mut self, point: &Point<ScaleType>, amount: ValueType) -> bool {
+        let mut value = self.get_mut(point).expect("Point not found in grid!");
         if let Some(result) = value.checked_sub(&amount) {
             *value = result;
             true
@@ -166,69 +260,7 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         }
     }
 
-    pub fn set(&mut self, point: &Point<ScaleType>, value: ValueType) -> bool {
-        if let Some(v) = self.get_mut(point) {
-            *v = value;
-            return true;
-        }
-        return false;
-    }
-
-    pub fn set_index(&mut self, index: usize, value: ValueType) -> bool {
-        if let Some(mut v) = self.data.get_mut(index) {
-            *v = value;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn hasneighbour(&self, point: &Point<ScaleType>, direction: Direction) -> bool {
-        if let Some(neighbour) = point.neighbour(direction, Some(self.width()), Some(self.height())) {
-            self[&neighbour] > ValueType::zero()
-        } else {
-            false
-        }
-    }
-
-    pub fn hasneighbours(&self,point: &Point<ScaleType>) -> (bool, bool, bool, bool) {
-       (
-           self.hasneighbour(point, Direction::North),
-           self.hasneighbour(point, Direction::East),
-           self.hasneighbour(point, Direction::South),
-           self.hasneighbour(point, Direction::West),
-       )
-    }
-
-    pub fn countneighbours(&self, point: &Point<ScaleType>) -> usize {
-       let mut count = 0;
-       if self.hasneighbour(point, Direction::North) { count += 1 };
-       if self.hasneighbour(point, Direction::East) { count += 1 };
-       if self.hasneighbour(point, Direction::South) { count += 1 };
-       if self.hasneighbour(point, Direction::West) { count += 1 };
-       count
-    }
-
-    pub fn getneighbour(&self, point: &Point<ScaleType>, direction: Direction) -> Option<Point<ScaleType>> {
-        if let Some(neighbour) = point.neighbour(direction, Some(self.width()), Some(self.height())) {
-            Some(neighbour)
-        } else {
-            None
-        }
-    }
-
-    pub fn getneighbours(&self, point: &Point<ScaleType>) -> Vec<Point<ScaleType>> {
-       let mut neighbours = Vec::new();
-       if let Some(neighbour) = self.getneighbour(point, Direction::North) { neighbours.push(neighbour); }
-       if let Some(neighbour) = self.getneighbour(point, Direction::East) { neighbours.push(neighbour); }
-       if let Some(neighbour) = self.getneighbour(point, Direction::South) { neighbours.push(neighbour); }
-       if let Some(neighbour) = self.getneighbour(point, Direction::West) { neighbours.push(neighbour); }
-       neighbours
-    }
-
-
-
-    pub fn randompathto(&mut self, rng: &mut Pcg32, from: &Point<ScaleType>, to: &Point<ScaleType>, value: ValueType) {
+    fn randompathto(&mut self, rng: &mut Pcg32, from: &Point<ScaleType>, to: &Point<ScaleType>, value: ValueType) {
         let mut retry = true;
         let mut retries = 0;
         let mut walk = *from; //copy
@@ -239,7 +271,7 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
             retry = false;
             while walk != *to {
                 if walk != *to {
-                    if self[&walk] == ValueType::zero() {
+                    if !self.is_set(&walk) {
                         self.set(&walk,value);
                     } else if iteration == 1 && retries < 5 {
                         //first step must be to a node that is still empty, restart:
@@ -259,7 +291,7 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
     }
 
     ///Creates a rectangular path (only horizontal and vertical) between points A and B
-    pub fn rectpathto(&mut self, rng: &mut Pcg32, from: &Point<ScaleType>, to: &Point<ScaleType>, value: ValueType) {
+    fn rectpathto(&mut self, rng: &mut Pcg32, from: &Point<ScaleType>, to: &Point<ScaleType>, value: ValueType) {
         if from == to {
             return;
         }
@@ -271,20 +303,20 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         if horizontal_first {
             for x in  xrange {
                 let point = Point(x,from.y() );
-                if self[&point] == ValueType::zero() { self.set(&point,value); };
+                if self.get(&point) == Some(&ValueType::zero()) { self.set(&point,value); };
             }
             for y in  yrange {
                 let point = Point(to.x(), y );
-                if self[&point] == ValueType::zero() { self.set(&point,value); };
+                if self.get(&point) == Some(&ValueType::zero()) { self.set(&point,value); };
             }
         } else {
             for y in  yrange {
                 let point = Point(from.x(), y );
-                if self[&point] == ValueType::zero() { self.set(&point,value); };
+                if self.get(&point) == Some(&ValueType::zero()) { self.set(&point,value); };
             }
             for x in  xrange {
                 let point = Point(x,to.y() );
-                if self[&point] == ValueType::zero() { self.set(&point,value); };
+                if self.get(&point) == Some(&ValueType::zero()) { self.set(&point,value); };
             }
         }
 
@@ -297,7 +329,9 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         for x in range(ScaleType::zero(),width) {
             for y in range(ScaleType::zero(),height) {
                 let point = Point(x,y);
-                self.inc(&point, other[&point]);
+                if let Some(value) = other.get(&point) {
+                    self.inc(&point, *value);
+                }
             }
         }
     }
@@ -309,11 +343,42 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         for x in range(ScaleType::zero(),width) {
             for y in range(ScaleType::zero(),height) {
                 let point = Point(x,y);
-                self.dec(&point, other[&point]);
+                if let Some(value) = other.get(&point) {
+                    self.dec(&point, *value);
+                }
             }
         }
     }
 
+}
+
+impl<'a, ScaleType,ValueType> NumericGrid<'a, ScaleType,ValueType> for Grid<ScaleType,ValueType> where
+    ScaleType: 'a + Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
+    ValueType: 'a + Num + Default + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+
+}
+
+
+
+impl<ScaleType,ValueType> fmt::Display for Grid<ScaleType,ValueType> where
+    ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
+    ValueType: fmt::Display + Default + PartialEq + Clone {
+
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, (point, value)) in self.iter().enumerate() {
+            if point.x() == ScaleType::zero() && i > 0 {
+                write!(f, "\n")?;
+            }
+            write!(f, "{}", value)?;
+        }
+        Ok(())
+    }
+}
+
+
+
+
+    /*
     ///Dijkstra pathfinding algorithm
     fn findpath(&self, from: &Point<ScaleType>, to: &Point<ScaleType>, costgrid: Option<Grid<ScaleType,u32>>) -> Vec<Point<ScaleType>> {
 
@@ -360,8 +425,8 @@ impl<ScaleType,ValueType> Grid<ScaleType,ValueType> where
         vec![]
 
     }
+    */
 
-}
 
 
 #[derive(Eq,PartialEq)]
@@ -369,6 +434,44 @@ struct PathState<ScaleType> {
    point: Point<ScaleType>,
    cost: u32
 }
+
+
+#[derive(Eq,PartialEq,Default,Clone)]
+pub struct RenderedTextCell {
+    ///The background colour (R,G,B)
+    pub background_colour: Option<(u8,u8,u8)>,
+    ///The foreground colour (R,G,B)
+    pub foreground_colour: Option<(u8,u8,u8)>,
+    ///the glyph to render, the text should span only one cell (or at least consistently the same number for  the entire grid)
+    pub text: Option<String>,
+}
+
+//TODO later: implement Add/AssignAdd to combine RenderedTextCells so we can combine different
+//layers
+
+impl fmt::Display for RenderedTextCell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let text: &str = if let Some(s) = self.text.as_ref() {
+            s
+        } else {
+            " "
+        };
+        if self.background_colour.is_some() || self.foreground_colour.is_some() {
+            let mut style = ansi_term::Style::new();
+            if let Some((r,g,b)) = self.background_colour {
+                style = style.on(ansi_term::Colour::RGB(r,g,b));
+            }
+            if let Some((r,g,b)) = self.foreground_colour {
+                style = style.fg(ansi_term::Colour::RGB(r,g,b));
+            }
+            write!(f, "{}",style.paint(text))
+        } else {
+            write!(f, "{}",text)
+        }
+    }
+}
+
+
 
 // The priority queue depends on `Ord`. (from:
 // https://doc.rust-lang.org/std/collections/binary_heap/index.html)
@@ -399,21 +502,20 @@ impl<ScaleType> PartialOrd for PathState<ScaleType> where
 ///Implementing the index ([]) operator for Grid
 impl<ScaleType,ValueType> Index<&Point<ScaleType>> for Grid<ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Default + PartialEq + Clone {
 
         type Output = ValueType;
 
         fn index(&self, point: &Point<ScaleType>) -> &Self::Output {
-            self.get(point).expect("Out of bounds")
+            <Self as GenericGrid<ScaleType,ValueType>>::get(self,point).expect("Out of bounds")
         }
-
 }
 
 
 
 impl<'a, ScaleType, ValueType> Iterator for GridIterator<'a, ScaleType,ValueType> where
     ScaleType: Integer + FromPrimitive + ToPrimitive + Bounded + Copy,
-    ValueType: Num + FromPrimitive + ToPrimitive + PartialOrd + PartialEq + Bounded + CheckedAdd + CheckedSub + Copy {
+    ValueType: Default + PartialEq + Clone {
 
     type Item = (Point<ScaleType>,&'a ValueType);
 
