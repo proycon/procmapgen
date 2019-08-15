@@ -2,13 +2,19 @@
 
 A small toy project written in Rust: procedural generation of 2D grid-based maps with simple terminal-based visualisations
 
+![Video](https://raw.githubusercontent.com/proycon/procmapgen/master/demo.gif)
 
-* ``Pipe graphs`` - an interconnected network of pipes/roads/subways/hallways or whatever you see in it.
+There are three kinds of graphs, and different styles of visualisation:
+
+* ``Pipe maps`` - an interconnected network of pipes/roads/subways/hallways or whatever you see in it.
     * No isolated subgraphs.
     * Two classes of pipes, a 'backbone' or set of core pipes (thicker) vs 'regular'
     * Simple visualisation (using unicode block drawing) to standard output
-* ``Height graphs`` - Each cell has a height, good for landscapes
-* ``Room graphs`` - Rooms with corridors
+* ``Height maps`` - Each cell has a height, good for landscapes. Can also be visualised as a heat map, terrain map.
+* ``Room maps`` - Rooms with corridors.
+
+
+## Screenshots
 
 ![Screenshot](https://raw.githubusercontent.com/proycon/procmapgen/master/screenshot.png)
 
